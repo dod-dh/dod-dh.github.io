@@ -7,7 +7,7 @@
   <title>도협 | Developer Portfolio</title>
   <meta
     name="description"
-    content="AI, ERP, Mobile, Game 분야의 Software Developer 포트폴리오"
+    content="AI, ERP, Mobile 분야의 Software Developer 포트폴리오"
   />
 
   <!-- Pretendard — free/open-source Korean font -->
@@ -669,6 +669,201 @@
       color: var(--purple);
     }
 
+    /* ---------- Project Modal ---------- */
+
+    .project-card {
+      cursor: pointer;
+      appearance: none;
+      width: 100%;
+      text-align: left;
+      font: inherit;
+    }
+
+    .project-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 2000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(28, 32, 49, 0.52);
+      backdrop-filter: blur(8px);
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+
+    .project-modal.is-open {
+      display: flex;
+      opacity: 1;
+    }
+
+    .modal-dialog {
+      position: relative;
+      width: min(900px, 100%);
+      max-height: min(860px, calc(100vh - 48px));
+      overflow-y: auto;
+      border: 1px solid rgba(255,255,255,0.8);
+      border-radius: 26px;
+      background: #fff;
+      box-shadow: 0 30px 90px rgba(25, 31, 57, 0.25);
+      transform: translateY(12px) scale(0.985);
+      transition: transform 0.22s ease;
+    }
+
+    .project-modal.is-open .modal-dialog {
+      transform: translateY(0) scale(1);
+    }
+
+    .modal-close {
+      position: absolute;
+      z-index: 2;
+      top: 18px;
+      right: 18px;
+      width: 38px;
+      height: 38px;
+      border: 1px solid rgba(233,235,243,0.9);
+      border-radius: 50%;
+      background: rgba(255,255,255,0.92);
+      color: var(--text-soft);
+      cursor: pointer;
+      font-size: 20px;
+      line-height: 1;
+    }
+
+    .modal-close:hover {
+      color: var(--text);
+      background: #fff;
+    }
+
+    .modal-content {
+      padding: 34px;
+    }
+
+    .modal-eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 8px;
+      color: var(--purple);
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .modal-eyebrow span {
+      color: var(--text-muted);
+    }
+
+    .modal-title {
+      padding-right: 50px;
+      font-size: clamp(25px, 4vw, 34px);
+      line-height: 1.25;
+      letter-spacing: -0.045em;
+    }
+
+    .modal-summary {
+      margin-top: 12px;
+      color: var(--text-soft);
+      font-size: 15px;
+      line-height: 1.85;
+    }
+
+    .modal-image-wrap {
+      margin-top: 25px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 17px;
+      background: var(--surface-soft);
+    }
+
+    .modal-image {
+      display: block;
+      width: 100%;
+      max-height: 430px;
+      object-fit: cover;
+    }
+
+    .modal-image-placeholder {
+      min-height: 220px;
+      display: grid;
+      place-items: center;
+      padding: 30px;
+      color: var(--text-muted);
+      text-align: center;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(120,104,238,.12), transparent 14rem),
+        linear-gradient(145deg, #f7f5ff, #f2f8ff);
+    }
+
+    .modal-section {
+      margin-top: 28px;
+    }
+
+    .modal-section h5 {
+      margin-bottom: 10px;
+      font-size: 15px;
+    }
+
+    .modal-section p {
+      color: var(--text-soft);
+      font-size: 14px;
+      line-height: 1.85;
+    }
+
+    .modal-points {
+      display: grid;
+      gap: 9px;
+      margin-top: 10px;
+      padding-left: 0;
+      list-style: none;
+    }
+
+    .modal-points li {
+      position: relative;
+      padding-left: 18px;
+      color: var(--text-soft);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .modal-points li::before {
+      content: "•";
+      position: absolute;
+      left: 2px;
+      color: var(--purple);
+      font-weight: 800;
+    }
+
+    .modal-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-top: 12px;
+    }
+
+    .modal-tags span {
+      padding: 6px 9px;
+      border: 1px solid #ececf5;
+      border-radius: 8px;
+      background: #fafaff;
+      color: #687087;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 10px;
+    }
+
+    .modal-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 30px;
+      padding-top: 22px;
+      border-top: 1px solid var(--line);
+    }
+
+    body.modal-open {
+      overflow: hidden;
+    }
+
     /* ---------- Experience ---------- */
 
     .experience-section {
@@ -862,6 +1057,23 @@
         min-height: 235px;
       }
 
+      .modal-content {
+        padding: 26px 20px 22px;
+      }
+
+      .modal-dialog {
+        max-height: calc(100vh - 28px);
+        border-radius: 21px;
+      }
+
+      .modal-actions {
+        flex-direction: column;
+      }
+
+      .modal-actions .button {
+        width: 100%;
+      }
+
       .footer-inner {
         flex-direction: column;
         gap: 5px;
@@ -1003,7 +1215,7 @@
             </p> <br/>
             <p> 
               언어와 아키텍처에 대한 기본기를 바탕으로 프로젝트를 설계하고 문제를 구조적으로 분석합니다. 
-              하네스 엔지니어링과 Claude Code를 적극 활용해 빠르게 만들고, 정확하게 이해하며, 높은 품질의 결과물까지 만들어냅니다. 
+              Harness Engineering과 Claude Code를 적극 활용해 빠르게 만들고, 정확하게 이해하며, 높은 품질의 결과물까지 만들어냅니다. 
             </p>
           </article>
 
@@ -1017,8 +1229,16 @@
             <div class="skill-list">
               <span class="skill">Python</span>
               <span class="skill">FastAPI</span>
+              <span class="skill">LangChain</span>
+              <span class="skill">AI Agent</span>
+              <span class="skill">MCP</span>
+              <span class="skill">AWS Bedrock</span>
+              <span class="skill">AWS ECS</span>
+              <span class="skill">AWS Fargate</span>
+              <span class="skill">AWS ECR</span>
+              <span class="skill">ALB</span>
               <span class="skill">PHP</span>
-              <span class="skill">RestAPI</span>
+              <span class="skill">REST API</span>
               <span class="skill">TypeScript</span>
               <span class="skill">React Native</span>
               <span class="skill">Supabase</span>
@@ -1026,7 +1246,7 @@
               <span class="skill">MySQL</span>
               <span class="skill">Electron</span>
               <span class="skill">Godot</span>
-              <span class="skill">Github Actions</span>
+              <span class="skill">GitHub Actions</span>
             </div>
           </article>
 
@@ -1044,7 +1264,7 @@
           <h2 class="section-title">Selected Projects</h2>
           <p class="section-description">
             회사 프로젝트와 개인 프로젝트를 AI, ERP, Mobile 분야로 나누어 정리했습니다.
-            카드를 클릭하면 각 프로젝트의 상세 문서 또는 GitHub Repository로 이동합니다.
+            카드를 클릭하면 프로젝트의 핵심 내용과 화면을 확인할 수 있습니다.
           </p>
         </div>
 
@@ -1059,13 +1279,25 @@
 
           <div class="project-grid">
 
-            <!-- TODO: GitHub Repository 주소로 변경 -->
-            <a
-              class="project-card"
-              href="https://github.com/dod-dh/chatbot-pub"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            <button class="project-card" type="button" data-project="ai-matching">
+              <span class="project-badge">COMPANY</span>
+              <div class="project-icon icon-ai">✦</div>
+              <h4>AI 기반 상품 매칭 Agent</h4>
+              <p>
+                비정형 주문 상품명을 사내 상품 마스터와 자동 매칭하고,
+                대량 상품 처리를 위한 Agent Pipeline과 운영 환경을 구축.
+              </p>
+              <div class="project-tags">
+                <span>AI Agent</span>
+                <span>LangChain</span>
+                <span>AWS</span>
+                <span>MCP</span>
+              </div>
+              <span class="project-arrow">↗</span>
+            </button>
+
+
+            <button class="project-card" type="button" data-project="rag">
               <span class="project-badge">COMPANY</span>
               <div class="project-icon icon-ai">✦</div>
               <h4>사내 챗봇 RAG 시스템</h4>
@@ -1079,21 +1311,16 @@
                 <span>VectorDB</span>
               </div>
               <span class="project-arrow">↗</span>
-            </a>
+            </button>
 
 
-            <a
-              class="project-card"
-              href="https://github.com/dod-dh/mcpserver"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            <button class="project-card" type="button" data-project="mcp">
               <span class="project-badge">COMPANY</span>
               <div class="project-icon icon-mcp">▤</div>
               <h4>사내 MCP 서버</h4>
               <p>
                 AI 모델이 사내 데이터와 기능을 활용할 수 있도록
-                MCP 기반의 서버와 Tool을 구축.
+                MCP 기반 서버와 공통 Tool Layer를 구축.
               </p>
               <div class="project-tags">
                 <span>MCP</span>
@@ -1101,15 +1328,10 @@
                 <span>AI Agent</span>
               </div>
               <span class="project-arrow">↗</span>
-            </a>
+            </button>
 
 
-            <a
-              class="project-card"
-              href="https://github.com/dod-dh/aiYoutubePipeline"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            <button class="project-card" type="button" data-project="youtube">
               <span class="project-badge">PERSONAL</span>
               <div class="project-icon icon-youtube">▶</div>
               <h4>YouTube Shorts 자동화</h4>
@@ -1123,7 +1345,7 @@
                 <span>FFmpeg</span>
               </div>
               <span class="project-arrow">↗</span>
-            </a>
+            </button>
 
           </div>
         </div>
@@ -1139,12 +1361,7 @@
 
           <div class="project-grid">
 
-            <a
-              class="project-card"
-              href="https://github.com/dod-dh/stock-ERP-pub"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            <button class="project-card" type="button" data-project="stock-erp">
               <span class="project-badge">COMPANY</span>
               <div class="project-icon icon-erp">◇</div>
               <h4>상품 / 재고 자동화</h4>
@@ -1158,15 +1375,10 @@
                 <span>Automation</span>
               </div>
               <span class="project-arrow">↗</span>
-            </a>
+            </button>
 
 
-            <a
-              class="project-card"
-              href="https://github.com/dod-dh/electron-POS"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            <button class="project-card" type="button" data-project="pos">
               <span class="project-badge">COMPANY</span>
               <div class="project-icon icon-pos">▣</div>
               <h4>Electron 기반의 POS 시스템</h4>
@@ -1180,14 +1392,10 @@
                 <span>Node.js</span>
               </div>
               <span class="project-arrow">↗</span>
-            </a>
+            </button>
 
 
-            <a
-              class="project-card"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            <button class="project-card" type="button" data-project="crm">
               <span class="project-badge">COMPANY</span>
               <div class="project-icon icon-crm">♙</div>
               <h4>고객관리 ERP</h4>
@@ -1201,7 +1409,7 @@
                 <span>Database</span>
               </div>
               <span class="project-arrow">↗</span>
-            </a>
+            </button>
 
           </div>
         </div>
@@ -1217,12 +1425,7 @@
 
           <div class="project-grid">
 
-            <a
-              class="project-card"
-              href="https://github.com/dod-dh/saiondo-pub"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            <button class="project-card" type="button" data-project="saiondo">
               <span class="project-badge">PERSONAL</span>
               <div class="project-icon icon-sayondo">♡</div>
               <h4>사이온도</h4>
@@ -1236,15 +1439,10 @@
                 <span>RevenueCat</span>
               </div>
               <span class="project-arrow">↗</span>
-            </a>
+            </button>
 
 
-            <a
-              class="project-card"
-              href="https://github.com/dod-dh/RPG-pub"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            <button class="project-card" type="button" data-project="rpg">
               <span class="project-badge">PERSONAL</span>
               <div class="project-icon icon-game">♢</div>
               <h4>모바일 방치형 키우기 게임</h4>
@@ -1258,15 +1456,10 @@
                 <span>Game</span>
               </div>
               <span class="project-arrow">↗</span>
-            </a>
+            </button>
 
 
-            <a
-              class="project-card"
-              href="https://github.com/dod-dh/conquest-pub"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            <button class="project-card" type="button" data-project="conquest">
               <span class="project-badge">PERSONAL</span>
               <div class="project-icon icon-game">⌘</div>
               <h4>모바일 땅따먹기 게임</h4>
@@ -1280,7 +1473,7 @@
                 <span>Mobile</span>
               </div>
               <span class="project-arrow">↗</span>
-            </a>
+            </button>
 
           </div>
         </div>
@@ -1362,6 +1555,53 @@
   </main>
 
 
+
+  <!-- Project Modal -->
+  <div class="project-modal" id="projectModal" aria-hidden="true">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <button class="modal-close" id="modalClose" type="button" aria-label="닫기">×</button>
+      <div class="modal-content">
+        <div class="modal-eyebrow">
+          <strong id="modalBadge">COMPANY</strong>
+          <span id="modalPeriod"></span>
+        </div>
+        <h3 class="modal-title" id="modalTitle"></h3>
+        <p class="modal-summary" id="modalSummary"></p>
+
+        <div class="modal-image-wrap" id="modalImageWrap">
+          <img class="modal-image" id="modalImage" alt="" />
+          <div class="modal-image-placeholder" id="modalImagePlaceholder">
+            프로젝트 화면 캡처를 준비 중입니다.
+          </div>
+        </div>
+
+        <div class="modal-section">
+          <h5>문제와 해결</h5>
+          <p id="modalProblem"></p>
+        </div>
+
+        <div class="modal-section">
+          <h5>주요 구현</h5>
+          <ul class="modal-points" id="modalPoints"></ul>
+        </div>
+
+        <div class="modal-section">
+          <h5>Tech Stack</h5>
+          <div class="modal-tags" id="modalTags"></div>
+        </div>
+
+        <div class="modal-actions">
+          <a class="button primary" id="modalArchitecture" href="#" target="_blank" rel="noopener noreferrer">
+            아키텍처 자세히 보기 ↗
+          </a>
+          <a class="button" id="modalGithub" href="#" target="_blank" rel="noopener noreferrer">
+            GitHub 문서 보기 ↗
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Footer -->
   <footer>
     <div class="container footer-inner">
@@ -1369,6 +1609,276 @@
       <span>Built with HTML & CSS</span>
     </div>
   </footer>
+
+
+  <script>
+    const PROJECTS = {
+      "ai-matching": {
+        badge: "COMPANY",
+        period: "2026.08 — 2026.09",
+        title: "AI 기반 상품 매칭 Agent",
+        summary: "비정형 주문 상품명과 사내 상품 마스터를 자동 매칭하는 AI Agent를 설계하고, 검색·판단·재검색부터 대량 처리와 운영 인프라까지 구축했습니다.",
+        problem: "상품명 표현 차이로 인해 단순 문자열 검색만으로 정확한 상품을 찾기 어렵고, 대량 상품 처리에서는 LLM 호출 지연과 반복 검색으로 처리 시간이 증가하는 문제가 있었습니다. DB 후보 검색과 문자열 유사도 필터링을 먼저 수행한 뒤 LLM Agent가 최종 판단하도록 단계화하고, 필요한 경우에만 추가 검색하도록 Loop를 최적화했습니다. 또한 상품 단위 Background·병렬 처리를 적용해 대량 요청을 효율적으로 처리하도록 구성했습니다.",
+        points: [
+          "DB 후보 검색 → RapidFuzz 유사도 필터링 → LLM 기반 최종 매칭 판단 Pipeline 구축",
+          "검색 조건 보완 및 추가 후보 탐색이 가능한 Agent 반복 검색 구조 설계",
+          "불필요한 LLM 호출과 중복 검색을 줄이도록 Agent Loop 및 종료 조건 최적화",
+          "다수 상품을 Background 기반 비동기·병렬 처리하여 대량 요청 처리 구조 개선",
+          "MCP Tool을 통한 사내 DB·업무 기능 연계 및 Agent별 데이터 접근 영역 분리",
+          "Arize Phoenix 기반 LLM / Agent / Tool Call 트레이싱과 사용량 모니터링",
+          "GitHub Actions → ECR → ECS Fargate → ALB 및 RDS PostgreSQL 기반 배포·운영 인프라 구축",
+          "테넌트별 LLM 호출량·MCP Tool 호출량·Agent 실행 이력을 조회하는 관리자 페이지 구축"
+        ],
+        tags: ["Python", "FastAPI", "LangChain", "Claude", "MCP", "RapidFuzz", "Phoenix", "AWS", "ECS", "Fargate", "PostgreSQL"],
+        image: "./images/ai-matching-agent.png",
+        architecture: "./docs/ai-matching-agent.md",
+        github: "https://github.com/dod-dh/ai-matching-agent"
+      },
+      rag: {
+        badge: "COMPANY",
+        period: "2025.05 — 2025.06",
+        title: "사내 챗봇 RAG 시스템",
+        summary: "사내 문서와 지식 데이터를 검색하고 LLM을 활용해 업무에 필요한 답변을 제공하는 RAG 기반 챗봇을 구축했습니다.",
+        problem: "사내 문서를 직접 찾아야 하는 업무 부담을 줄이기 위해 문서를 수집·전처리하고 Embedding 기반 검색과 LLM 답변 생성을 연결했습니다.",
+        points: [
+          "문서 수집 및 전처리 Pipeline 구축",
+          "Gemini Embedding Model을 활용한 문서 임베딩",
+          "Pinecone Vector DB 기반 검색 구조 구축",
+          "Gemini 2.5 Flash 연동 및 검색 결과 기반 답변 생성",
+          "실제 업무에서 사용할 수 있는 상용화 AI 챗봇 서비스 구축"
+        ],
+        tags: ["Python", "Pinecone", "Embedding", "Gemini", "RAG", "LLM"],
+        image: "./images/rag-chatbot.png",
+        architecture: "./docs/chatbot-rag.md",
+        github: "https://github.com/dod-dh/chatbot-pub"
+      },
+      mcp: {
+        badge: "COMPANY",
+        period: "2026.08 — 2026.09",
+        title: "사내 MCP 서버",
+        summary: "AI Agent가 사내 데이터와 업무 기능을 안전하게 사용할 수 있도록 공통 MCP 서버와 Tool Layer를 구축했습니다.",
+        problem: "Agent마다 사내 시스템 접근 방식을 개별 구현하면 인증·인가와 데이터 접근 구조가 중복되고 관리가 어려워지는 문제를 해결하기 위해 공통 MCP Layer를 설계했습니다.",
+        points: [
+          "Python MCP SDK 기반 공통 MCP 서버 구축",
+          "Agent 및 테넌트별 데이터 접근 범위를 분리하는 멀티테넌트 구조 설계",
+          "테넌트 라우팅 및 인증·인가 Pipeline 구축",
+          "업무 기능을 MCP Tool로 추상화하여 여러 Agent에서 공통 사용",
+          "Agent 동작 모드와 Tool 호출 구조 표준화",
+          "AWS EC2 기반 서버 배포 및 GitHub Actions CI/CD 구성"
+        ],
+        tags: ["Python", "MCP SDK", "PyMySQL", "PyJWT", "Paramiko", "Claude Sonnet", "MySQL", "AWS"],
+        image: "./images/mcp-server.png",
+        architecture: "./docs/mcp-server.md",
+        github: "https://github.com/dod-dh/mcpserver"
+      },
+      youtube: {
+        badge: "PERSONAL",
+        period: "2026.04 — 2026.06",
+        title: "YouTube Shorts 자동화",
+        summary: "아이디어 수집부터 AI 콘텐츠 생성, TTS, 영상 제작, FFmpeg 후처리, YouTube 업로드까지 전 과정을 자동화했습니다.",
+        problem: "Shorts 제작 과정에서 반복적으로 발생하는 콘텐츠 작성·음성 생성·영상 편집·업로드 작업을 자동화해 전체 제작 Pipeline을 하나의 흐름으로 연결했습니다.",
+        points: [
+          "아이디어 및 데이터 수집 자동화",
+          "LLM 기반 콘텐츠 및 스크립트 생성",
+          "TTS 음성 생성",
+          "영상 제작 및 FFmpeg 후처리",
+          "YouTube Data API v3 기반 자동 업로드"
+        ],
+        tags: ["Gemini", "LLM", "TTS", "FFmpeg", "Python", "YouTube API"],
+        image: "./images/youtube-pipeline.png",
+        architecture: "./docs/youtube-pipeline.md",
+        github: "https://github.com/dod-dh/aiYoutubePipeline"
+      },
+      "stock-erp": {
+        badge: "COMPANY",
+        period: "2026.02 — 2026.07",
+        title: "상품 / 재고 자동화",
+        summary: "상품 수집·등록과 재고 데이터 수집·연동을 자동화하는 API 서버를 설계하고 개발했습니다.",
+        problem: "판매 채널마다 다른 API와 데이터 형식을 공통 구조로 처리할 수 있도록 채널별 차이를 Adapter 계층으로 분리했습니다.",
+        points: [
+          "채널 Adapter 및 Registry Pattern 적용",
+          "신규 채널 추가가 용이한 확장 구조 설계",
+          "3단 정규화 모델과 선언형 검증",
+          "표준 Error Catalog 및 부분 성공 응답",
+          "리소스 및 API 처리 성능 최적화"
+        ],
+        tags: ["Python", "FastAPI", "REST API", "Automation"],
+        image: "./images/stock-erp.png",
+        architecture: "./docs/stock-erp.md",
+        github: "https://github.com/dod-dh/stock-ERP-pub"
+      },
+      pos: {
+        badge: "COMPANY",
+        period: "2026.06 — 2026.08",
+        title: "Electron 기반 POS 시스템",
+        summary: "Electron 기반 POS 클라이언트와 API 서버를 개발하고 카페24 온·오프라인 데이터를 연동했습니다.",
+        problem: "결제 중복 승인과 외부 VAN 연동 차이로 인한 운영 리스크를 줄이기 위해 IPC 보안, 결제 큐, VAN 추상화 및 자동 배포 구조를 적용했습니다.",
+        points: [
+          "Preload Whitelist 및 총 57개 IPC Channel 기반 보안 구조",
+          "이중 승인 방지 2단계 결제 Queue",
+          "지수 백오프 기반 오류 처리",
+          "Method 기반 VAN 추상화",
+          "GitHub Tag 기반 자동 빌드 및 업데이트 Pipeline"
+        ],
+        tags: ["Electron", "React", "Vite", "Zustand", "SQLite", "PHP", "MySQL"],
+        image: "./images/electron-pos.png",
+        architecture: "./docs/electron-pos.md",
+        github: "https://github.com/dod-dh/electron-POS"
+      },
+      crm: {
+        badge: "COMPANY",
+        period: "2025.02 — 2025.08",
+        title: "고객관리 ERP",
+        summary: "고객 정보와 업무 데이터를 통합 관리하고 사내 업무 프로세스를 지원하는 ERP 시스템을 설계·개발했습니다.",
+        problem: "업무 프로세스를 안정적으로 확장하고 반복 작업을 자동화할 수 있도록 아키텍처와 데이터 구조를 설계했습니다.",
+        points: [
+          "Clean Architecture 설계",
+          "테이블 ERD 설계 및 Backend 개발",
+          "Daemon 및 Batch 구조 설계",
+          "Message Queue 기반 알림톡 발송 로직 구현"
+        ],
+        tags: ["PHP", "JavaScript", "HTML", "CSS", "ERP", "Database"],
+        image: "./images/customer-erp.png",
+        architecture: "./docs/customer-erp.md",
+        github: "#"
+      },
+      saiondo: {
+        badge: "PERSONAL",
+        period: "2026.05 — 2026.06",
+        title: "사이온도",
+        summary: "지인과의 만남·연락·선물 등의 교류를 기록하고 관계를 관리할 수 있는 모바일 애플리케이션입니다.",
+        problem: "관계별 교류 기록과 관계 온도를 직관적으로 관리할 수 있는 개인 서비스를 기획하고 직접 개발·배포했습니다.",
+        points: [
+          "React Native / Expo 기반 모바일 앱 개발",
+          "Supabase PostgreSQL 데이터 구조 구축",
+          "Supabase Edge Functions 활용",
+          "RevenueCat Subscription 및 Entitlement 연동",
+          "RevenueCat Webhook 기반 구독 상태 동기화"
+        ],
+        tags: ["React Native", "Expo", "Supabase", "PostgreSQL", "RevenueCat"],
+        image: "./images/saiondo.png",
+        architecture: "./docs/saiondo.md",
+        github: "https://github.com/dod-dh/saiondo-pub"
+      },
+      rpg: {
+        badge: "PERSONAL",
+        period: "2026.07 — 2026.09",
+        title: "모바일 방치형 키우기 게임",
+        summary: "자동 전투와 캐릭터 성장을 중심으로 개발 중인 2D 모바일 방치형 RPG입니다.",
+        problem: "반복적인 밸런스 테스트와 게임 상태 관리의 복잡도를 줄이기 위해 데이터 중심 구조와 자동 시뮬레이션을 적용했습니다.",
+        points: [
+          "Pure GDScript 기반 Clean Architecture",
+          "Headless 밸런스 역산 Simulator",
+          "상태 관측형 연출 구조",
+          "저장 데이터 최소화 및 검증 자동화"
+        ],
+        tags: ["Godot", "GDScript", "Python", "AI Agent", "2D Sprite"],
+        image: "./images/rpg.png",
+        architecture: "./docs/rpg.md",
+        github: "https://github.com/dod-dh/RPG-pub"
+      },
+      conquest: {
+        badge: "PERSONAL",
+        period: "2026",
+        title: "모바일 땅따먹기 게임",
+        summary: "영토 점령과 병력 이동을 중심으로 개발한 모바일 전략 게임입니다.",
+        problem: "영토 간 점령과 병력 생산·이동을 직관적인 모바일 게임 루프로 구성하고 단계별 밸런스를 설계했습니다.",
+        points: [
+          "Godot 기반 2D 모바일 전략 게임 개발",
+          "영토 점령 및 병력 이동 시스템 구현",
+          "영토별 생산 속도 및 병력 제한 설계",
+          "버프 영토와 중립 영토 등 콘텐츠 구성"
+        ],
+        tags: ["Godot", "Strategy", "Mobile", "2D"],
+        image: "./images/conquest.png",
+        architecture: "./docs/conquest.md",
+        github: "https://github.com/dod-dh/conquest-pub"
+      }
+    };
+
+    const modal = document.getElementById("projectModal");
+    const modalClose = document.getElementById("modalClose");
+    const modalTitle = document.getElementById("modalTitle");
+    const modalBadge = document.getElementById("modalBadge");
+    const modalPeriod = document.getElementById("modalPeriod");
+    const modalSummary = document.getElementById("modalSummary");
+    const modalProblem = document.getElementById("modalProblem");
+    const modalPoints = document.getElementById("modalPoints");
+    const modalTags = document.getElementById("modalTags");
+    const modalImage = document.getElementById("modalImage");
+    const modalImagePlaceholder = document.getElementById("modalImagePlaceholder");
+    const modalArchitecture = document.getElementById("modalArchitecture");
+    const modalGithub = document.getElementById("modalGithub");
+
+    function openProjectModal(projectId) {
+      const project = PROJECTS[projectId];
+      if (!project) return;
+
+      modalTitle.textContent = project.title;
+      modalBadge.textContent = project.badge;
+      modalPeriod.textContent = project.period;
+      modalSummary.textContent = project.summary;
+      modalProblem.textContent = project.problem;
+
+      modalPoints.innerHTML = project.points
+        .map(point => `<li>${point}</li>`)
+        .join("");
+
+      modalTags.innerHTML = project.tags
+        .map(tag => `<span>${tag}</span>`)
+        .join("");
+
+      modalImage.alt = `${project.title} 화면`;
+      modalImage.src = project.image;
+      modalImage.style.display = "block";
+      modalImagePlaceholder.style.display = "none";
+
+      modalImage.onerror = () => {
+        modalImage.style.display = "none";
+        modalImagePlaceholder.style.display = "grid";
+      };
+
+      modalArchitecture.href = project.architecture;
+      modalGithub.href = project.github;
+
+      const architectureDisabled = !project.architecture || project.architecture === "#";
+      const githubDisabled = !project.github || project.github === "#";
+
+      modalArchitecture.style.display = architectureDisabled ? "none" : "inline-flex";
+      modalGithub.style.display = githubDisabled ? "none" : "inline-flex";
+
+      modal.classList.add("is-open");
+      modal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("modal-open");
+      modalClose.focus();
+    }
+
+    function closeProjectModal() {
+      modal.classList.remove("is-open");
+      modal.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("modal-open");
+    }
+
+    document.querySelectorAll("[data-project]").forEach(card => {
+      card.addEventListener("click", () => {
+        openProjectModal(card.dataset.project);
+      });
+    });
+
+    modalClose.addEventListener("click", closeProjectModal);
+
+    modal.addEventListener("click", event => {
+      if (event.target === modal) {
+        closeProjectModal();
+      }
+    });
+
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape" && modal.classList.contains("is-open")) {
+        closeProjectModal();
+      }
+    });
+  </script>
 
 </body>
 </html>
