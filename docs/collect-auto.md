@@ -1,0 +1,1133 @@
+# 멀티채널 커머스 상품 연동 플랫폼 — 상세 기술 문서
+
+> 사내 프로젝트로, 회사명·서비스명·도메인·인프라 엔드포인트 등 식별 정보는 모두 비식별 처리했습니다.
+> 클래스명 일부는 내부 명칭 대신 역할이 드러나는 일반 명칭으로 바꿔 표기했습니다.
+> 코드 예시는 설계 의도를 보이기 위한 발췌·축약본입니다.
+
+**기간** 2026.02 ~ 2026.07 (약 6개월) · **팀** 개발자 8명
+**담당** API 서버 아키텍처 설계 / 쿠팡(Coupang) 채널 API 연동
+
+---
+
+## 목차
+
+1. [문제 정의](#1-문제-정의)
+2. [시스템 아키텍처](#2-시스템-아키텍처)
+3. [핵심 설계 1 — 채널 어댑터와 레지스트리](#3-핵심-설계-1--채널-어댑터와-레지스트리)
+4. [핵심 설계 2 — 3단 정규화 데이터 모델](#4-핵심-설계-2--3단-정규화-데이터-모델)
+5. [핵심 설계 3 — 에러 카탈로그와 부분 성공 응답](#5-핵심-설계-3--에러-카탈로그와-부분-성공-응답)
+6. [핵심 설계 4 — 선언형 검증 프레임워크](#6-핵심-설계-4--선언형-검증-프레임워크)
+7. [상품 등록 파이프라인](#7-상품-등록-파이프라인)
+8. [쿠팡(Coupang) 연동 상세](#8-쿠팡coupang-연동-상세)
+9. [성능·안정성 개선 사례](#9-성능안정성-개선-사례)
+10. [운영 가시성](#10-운영-가시성)
+11. [보안·인증](#11-보안인증)
+12. [개발 프로세스와 협업](#12-개발-프로세스와-협업)
+13. [회고](#13-회고)
+
+---
+
+## 1. 문제 정의
+
+셀러는 하나의 상품을 쿠팡·스마트스토어·11번가·G마켓·SSG 등 **여러 채널에 동시에** 팔고 싶어 합니다.
+그런데 채널마다 다음이 전부 다릅니다.
+
+| 축 | 채널 간 차이 |
+|---|---|
+| **인증** | HMAC 서명 / OAuth2 Authorization Code / API Key + Secret / 자체 세션 |
+| **프로토콜** | JSON / XML / form-urlencoded / multipart |
+| **상품 스키마** | 필드명·중첩 구조·옵션 표현 방식이 전부 상이 |
+| **필수값 정책** | 같은 "상품"이라도 채널마다 필수 항목이 다름 (고시정보, KC인증, 원산지 …) |
+| **카테고리 체계** | depth 수·코드 체계 상이, 카테고리별 추가 필수 메타 존재 |
+| **등록 방식** | 단건 / 다건, 즉시 반영 / 승인 대기, 옵션 단위 별도 API |
+
+### 안티패턴 (피해야 할 구조)
+
+```python
+if channel == "coupang":
+    ...
+elif channel == "smartstore":
+    ...
+elif channel == "esm":
+    ...   # 채널 12개 × 기능 6개 = 72분기
+```
+
+채널이 늘어날 때마다 **공통 로직이 오염**되고, 8명이 같은 파일을 동시에 수정하면서 충돌합니다.
+
+### 설계 목표
+
+1. **공통 파이프라인은 채널을 몰라야 한다** — 수집/변환/검증/전송 흐름은 한 벌만 존재
+2. **신규 채널 = 어댑터 2개 구현** — Client(통신) + Converter(매핑), 그 외 수정 0
+3. **실패를 구조화한다** — 채널이 늘어도 프론트엔드 분기 코드는 변하지 않는다
+4. **8명이 병렬로 채널을 붙일 수 있어야 한다** — 채널 간 코드 결합 0
+
+---
+
+## 2. 시스템 아키텍처
+
+### 2-1. 레이어 구조
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  API Layer (FastAPI)                                          │
+│   · /stage       화면용 오케스트레이션 (수집→생성→전송 한 흐름)  │
+│   · /goods, /ch-goods, /vendors, /ch-presets …  도메인 CRUD    │
+│   · /channels/{channel}/*  채널 고유 기능(인증 URL, 배송지 등)   │
+├──────────────────────────────────────────────────────────────┤
+│  Service Layer  ── 채널을 모르는 공통 비즈니스 로직              │
+│   SyncService · ChGoodsService · GoodsService · StageService  │
+│   ImageService · NotificationService · AuthService …           │
+├──────────────────────────────────────────────────────────────┤
+│  Channels Layer  ── 채널을 아는 유일한 곳 (어댑터)              │
+│   ApiHandlerRegistry ─┬─ {channel}ApiClient   (통신·인증)      │
+│                       └─ {channel}Converter   (스키마 매핑)     │
+├──────────────────────────────────────────────────────────────┤
+│  Repository Layer  ── 쿼리 캡슐화                              │
+├──────────────────────────────────────────────────────────────┤
+│  Model Layer  ── SQLAlchemy ORM + 선언형 검증 규칙              │
+└──────────────────────────────────────────────────────────────┘
+        │                                   │
+   PostgreSQL (JSONB)                  외부 채널 Open API
+```
+
+**핵심은 Service와 Channels가 직교(orthogonal)한다는 점**입니다.
+Service는 "무엇을 하는가(수집한다, 등록한다)"만 알고,
+Channels는 "어떻게 하는가(어떤 URL에 어떤 형식으로)"만 압니다.
+둘을 잇는 유일한 접점이 레지스트리입니다.
+
+### 2-2. 요청 처리 흐름
+
+```mermaid
+sequenceDiagram
+    participant FE as 관리 화면
+    participant API as StageAPI
+    participant SVC as SyncService / ChGoodsService
+    participant REG as ApiHandlerRegistry
+    participant AD as ChannelApiClient + Converter
+    participant EXT as 외부 채널 API
+    participant DB as PostgreSQL
+
+    FE->>API: POST /stage/ch-goods/push (vendor_id, id_list)
+    API->>SVC: 오케스트레이션 호출 (batch_id 발급)
+    SVC->>DB: SyncJob RUNNING 기록 (선 커밋)
+    SVC->>REG: get(channel_code)
+    REG-->>SVC: (ApiClient 클래스, Converter 인스턴스)
+    SVC->>AD: to_ch_product(ch_goods, ctx) 스키마 변환
+    SVC->>SVC: validate_all() 선언형 검증
+    SVC->>AD: create_ch_product(...)
+    AD->>EXT: 인증 서명 + HTTP 요청 (재시도/타임아웃)
+    EXT-->>AD: 건별 성공/실패
+    AD-->>SVC: [(idx, ch_goods, success, payload, error, raw)]
+    SVC->>DB: ch_goods_sync 이력 · SyncJob COMPLETED
+    SVC-->>FE: row 단위 부분 성공 응답 + SSE 알림
+```
+
+### 2-3. 왜 `/stage` 오케스트레이션 레이어를 두었나
+
+화면은 "가져오기 → 마스터 생성 → 채널상품 생성 → 검증 → 전송"이라는 **다단계 작업**을 수행합니다.
+이걸 프론트가 여러 API를 순서대로 호출해 조립하면, 순서·트랜잭션·알림이 전부 프론트 책임이 됩니다.
+
+`StageService`는 이 흐름을 서버가 소유하도록 만든 오케스트레이션 계층입니다.
+
+- 각 단계 시작/완료/실패 시 **SSE 알림 자동 발송**
+- `vendor_id` 하나로 `partner_id` / `channel_code` 해석 → 프론트는 채널을 몰라도 됨
+- 채널 고유 엔드포인트는 **in-process ASGI 디스패치**로 내부 호출 (아래 9-1 참고)
+
+---
+
+## 3. 핵심 설계 1 — 채널 어댑터와 레지스트리
+
+### 3-1. 레지스트리
+
+```python
+@dataclass
+class ApiHandler:
+    client_class: type                 # 통신 담당 (인증·엔드포인트)
+    converter: BaseProductConverter    # 매핑 담당 (스키마 변환)
+
+    def __post_init__(self):
+        # 잘못 등록하면 "런타임 500"이 아니라 "앱 부팅 실패"로 만든다 — fail fast
+        if not self.client_class:
+            raise ChannelException("handler_not_found", missing="client_class")
+        if not self.converter:
+            raise ChannelException("handler_not_found", missing="converter")
+
+
+class ApiHandlerRegistry:
+    _registry: dict[str, ApiHandler] = {
+        ChannelCode.COUPANG:    ApiHandler(CoupangApiClient,    CoupangConverter()),
+        ChannelCode.SMARTSTORE: ApiHandler(SmartStoreApiClient, SmartStoreConverter()),
+        ChannelCode.GMARKET:    ApiHandler(EsmApiClient,        EsmConverter()),   # 한 구현체를
+        ChannelCode.AUCTION:    ApiHandler(EsmApiClient,        EsmConverter()),   # 두 채널이 공유
+        ...  # 12개 채널
+    }
+
+    @classmethod
+    def get(cls, channel: str) -> ApiHandler:
+        handler = cls._registry.get(channel)
+        if not handler:
+            raise ChannelException("not_registered", channel=channel)
+        return handler
+```
+
+**설계 포인트**
+
+- `converter`는 **인스턴스**, `client_class`는 **클래스**로 보관합니다.
+  Converter는 상태가 없어 공유 가능하지만, Client는 `httpx.AsyncClient`와
+  벤더별 인증 키(`access_key`/`secret_key`)라는 **요청 스코프 상태**를 갖기 때문에 매 호출마다 새로 만듭니다.
+- `__post_init__`의 검증으로 등록 누락은 **부팅 시점에** 터집니다.
+  운영 중 특정 채널만 500이 나는 상황을 구조적으로 차단했습니다.
+- G마켓/옥션처럼 **동일 사업자의 다른 채널**은 하나의 구현체를 두 키에 매핑해 중복을 없앴습니다.
+
+### 3-2. 추상 API 클라이언트
+
+채널마다 프로토콜이 다르다는 문제를, **직렬화기(Serializer) 교체**로 흡수했습니다.
+
+```python
+class BaseApiClient(ABC):
+    """모든 채널 API 클라이언트의 베이스"""
+
+    serializer: BaseSerializer = JsonSerializer()   # XML 채널은 XmlSerializer로 교체만 하면 됨
+
+    def __init__(self):
+        self.client = HTTPClient(
+            base_url=self.get_base_url(),
+            timeout=self.get_timeout(),          # 기본 30s, 채널별 오버라이드
+            max_retries=self.get_max_retries(),  # 기본 3회
+        )
+        self.client.client.headers.update(self.get_default_headers())
+
+    @abstractmethod
+    def get_base_url(self) -> str: ...
+
+    @abstractmethod
+    async def collecting_products(self, **kwargs) -> dict:
+        """공통 SyncService가 호출하는 단일 진입점"""
+
+    async def post(self, path: str, data: dict = None, extra_headers: dict = None) -> dict:
+        headers = {
+            "Content-Type": self.serializer.content_type,
+            **self.get_default_headers(),   # 채널 공통 헤더
+            **(extra_headers or {}),        # 호출별 서명 헤더 등
+        }
+        raw = await self.client.post_raw(path, body=self.serializer.serialize(data or {}), headers=headers)
+        return self.serializer.deserialize(raw)
+
+    # get / put / post_form / post_multipart 동일 패턴
+    async def __aenter__(self): return self
+    async def __aexit__(self, *exc): await self.close()
+```
+
+- **헤더 병합 순서**를 규약으로 고정: `기본 Content-Type → 채널 공통 → 호출별 오버라이드`.
+  채널별 서명 헤더가 항상 마지막에 이겨야 하므로 이 순서가 중요합니다.
+- `collecting_products`를 **추상 메서드**로 강제해, 공통 `SyncService`가
+  채널을 몰라도 되는 단일 진입점을 보장했습니다.
+- `async with` 컨텍스트 매니저로 커넥션 정리를 누락 불가능하게 만들었습니다.
+
+### 3-3. 재시도·타임아웃을 하부에 흡수
+
+```python
+class HTTPClient:
+    RETRYABLE = {408, 429, 500, 502, 503, 504}   # 재시도 가치가 있는 것만
+
+    async def _request(self, method, path, **kwargs):
+        for attempt in range(self.max_retries):
+            try:
+                response = await self.client.request(method, path, **kwargs)
+                if response.status_code >= 400:
+                    if response.status_code in self.RETRYABLE and attempt < self.max_retries - 1:
+                        await asyncio.sleep(self.retry_delay * (attempt + 1))  # 선형 백오프
+                        continue
+                    raise HTTPError(response.status_code, response.text, path)
+                return response.json()
+            except httpx.TimeoutException:
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(self.retry_delay * (attempt + 1))
+                    continue
+                raise
+        raise SystemException("http_retry_exhausted", max_retries=self.max_retries)
+```
+
+**400/401/422는 재시도하지 않습니다.** 우리 요청이 틀린 것이므로 재시도해도 같은 결과이고,
+채널 API 호출 쿼터만 소모합니다. "재시도 가능한 실패"와 "재시도 불가능한 실패"를 나누는 것이
+외부 연동에서 가장 실용적인 구분이었습니다.
+
+### 3-4. 신규 채널 추가 비용
+
+```
+channels/{channel}/
+├── adapter/{channel}_api_client.py    ← 구현 (인증 + 엔드포인트)
+├── adapter/{channel}_converter.py     ← 구현 (스키마 매핑)
+├── model/{create,collect}_model.py    ← Pydantic 요청/응답 모델
+└── router/{channel}_router.py         ← (선택) 채널 고유 기능만
+
+channel_registry.py                    ← 1줄 등록
+```
+
+**공통 파이프라인 코드는 한 줄도 수정하지 않습니다.**
+6개월 동안 12개 채널이 이 방식으로 추가됐고, 채널 담당자끼리 파일 충돌이 발생하지 않았습니다.
+
+---
+
+## 4. 핵심 설계 2 — 3단 정규화 데이터 모델
+
+### 4-1. 왜 3단인가
+
+가장 단순한 설계는 "채널 A에서 읽어서 채널 B로 바로 쓴다"입니다.
+하지만 채널이 N개면 **변환 조합이 N×N** 이 됩니다. 12개 채널이면 132가지.
+
+가운데에 **정규화된 마스터 스키마**를 두면 **N + N** 으로 떨어집니다.
+
+```mermaid
+flowchart LR
+    A1[쿠팡] --> R
+    A2[카페24] --> R
+    A3[외부 ERP] --> R
+    R[(ch_goods_raw<br/>채널 원본 JSONB 무손실 보관)]
+    R -->|to_goods| G[(goods / goods_detail<br/>정규화 마스터)]
+    G -->|goods_to_ch_goods + Preset 병합| C[(ch_goods / ch_goods_detail<br/>채널별 상품)]
+    C -->|to_ch_product| B1[스마트스토어]
+    C -->|to_ch_product| B2[11번가]
+    C -->|to_ch_product| B3[쿠팡]
+```
+
+| 테이블 | 역할 | 왜 필요한가 |
+|---|---|---|
+| `ch_goods_raw` | 채널에서 받은 **원본 응답을 JSONB로 무손실 보관** | 매핑 로직 버그를 재수집 없이 재변환으로 복구 가능. 장애 분석의 근거 |
+| `goods` / `goods_detail` | **정규화 마스터** (약 40개 표준 필드 + JSONB 확장 영역) | 채널 독립적 단일 진실 원천 |
+| `ch_goods` / `ch_goods_detail` | 채널별 상품 (카테고리·전송 상태·채널 상품키 보유) | 같은 상품을 채널마다 다른 가격/카테고리로 팔 수 있음 |
+
+### 4-2. 정형 + 비정형 하이브리드
+
+채널마다 있는 필드가 다른데 마스터 스키마를 최대공약수로 잡으면 정보가 손실되고,
+최소공배수로 잡으면 컬럼이 수백 개가 됩니다.
+
+**공통 필드는 컬럼으로, 채널 특수 정보는 JSONB로** 나눴습니다.
+
+```python
+class ChGoodsDetail(Base):
+    # 정형: 모든 채널이 공유하는 축 → 인덱스·조인·검색 대상
+    goods_id, barcode, brand_name, origin_country, main_img_url, ...
+
+    # 비정형: 채널·카테고리마다 형태가 다른 영역 → JSONB
+    sales_info, price_info, shipping_info, option_info, claim_info,
+    certification_info, notice_info, benefit_info, tax_info, extra_info
+```
+
+PostgreSQL JSONB를 택한 이유는 **스키마 유연성과 쿼리 가능성을 동시에** 얻기 위함입니다.
+새 채널이 요구하는 필드가 생겨도 마이그레이션 없이 흡수되고, 필요하면 GIN 인덱스로 조회할 수 있습니다.
+
+### 4-3. Preset — 반복 입력 제거
+
+셀러가 상품 100개를 등록할 때 배송정책·반품비·과세여부는 대개 동일합니다.
+이를 **Preset(템플릿)** 으로 분리해, 채널상품 생성 시 병합되도록 했습니다.
+
+```python
+# 화이트리스트로 병합 대상을 명시 — Preset이 예상 밖 필드를 덮어쓰는 사고 방지
+preset_allowed_keys = {"ch_category_info", "item_status_cd", "use_options",
+                       "is_imported", "is_kc_certified", ...}
+
+goods_detail_allowed_keys = {"sales_info", "price_info", "shipping_info",
+                             "claim_info", "notice_info", "tax_info", ...}
+```
+
+병합 키를 **명시적 화이트리스트**로 관리한 것이 핵심입니다.
+`dict.update()`로 통째 병합하면 Preset에 잘못 들어간 키가 상품 데이터를 오염시킵니다.
+
+### 4-4. Converter의 공통/개별 분리
+
+```python
+class BaseProductConverter(ABC):
+    @abstractmethod
+    def to_goods(self, partner_id, client_user_id, raw: dict) -> Goods:
+        """채널 원본 → 마스터. 채널마다 반드시 구현"""
+
+    def to_goods_bulk(self, partner_id, client_user_id, raw_list) -> list[Goods]:
+        """단건만 구현하면 벌크는 공짜 — 12개 채널 × 벌크 로직 중복 제거"""
+        return [self.to_goods(partner_id, client_user_id, raw) for raw in raw_list]
+
+    @staticmethod
+    def default_goods_to_ch_goods(channel_id, vendor_id, ..., goods, ch_category_info, preset=None) -> ChGoods:
+        """마스터 → 채널상품 변환은 채널 무관하게 거의 동일 → 베이스에서 1회 구현"""
+```
+
+`to_goods`(채널마다 다름)는 추상 메서드로 **강제**하고,
+`to_goods_bulk` / `default_goods_to_ch_goods`(채널 무관)는 베이스에 **구현체로** 두어
+"12개 채널에 같은 코드가 12벌 복사되는" 상황을 막았습니다.
+
+---
+
+## 5. 핵심 설계 3 — 에러 카탈로그와 부분 성공 응답
+
+### 5-1. 문제
+
+외부 API 12개를 붙이면 에러의 출처가 최소 5가지입니다.
+
+- 우리 DB에 데이터가 없음
+- 채널 인증 정보가 없음/만료
+- 우리 데이터가 채널 필수값 정책 위반
+- 채널이 요청을 거절 (검증 실패)
+- 채널 API 자체 장애
+
+이걸 그대로 프론트에 흘리면 **프론트가 채널별 에러 문자열을 파싱**하게 됩니다.
+채널이 늘 때마다 프론트도 같이 수정해야 하는 구조입니다.
+
+### 5-2. 7개 카테고리 카탈로그
+
+응답 포맷을 하나로 고정하고, 에러를 **원인 계층**으로 분류했습니다.
+
+```json
+{
+  "success": false,
+  "code": 422,
+  "data": null,
+  "error": {
+    "code": "E500",
+    "message": "ch_goods_id=100: 리프 카테고리 ID가 없습니다.",
+    "details": {
+      "channel": "smartstore",
+      "reason": "required_field_missing",
+      "target": "leafCategoryId",
+      "ch_goods_id": 100
+    }
+  },
+  "timestamp": "2026-06-15 14:30:45",
+  "request_id": "…"
+}
+```
+
+| 코드 | 그룹 | 의미 | HTTP | 세부 분기 키 |
+|---|---|---|---|---|
+| `E100` | SYSTEM | 환경변수 누락, 재시도 소진 등 인프라 | 500 / 502 | `details.reason` |
+| `E200` | RESOURCE_NOT_FOUND | 도메인 리소스 미발견 | 404 | `details.resource` |
+| `E300` | CHANNEL | 채널 인증/초기화/미등록 | 400~500 | `details.reason` |
+| `E400` | VALIDATION | 모델 검증·변환 실패 | 422 | `details.reason` + `target` |
+| `E500` | CHANNEL_BUSINESS | **채널별 정책 위반** | 422 / 409 | `details.channel` + `reason` |
+| `E600` | EXTERNAL | 외부 API·이미지 처리 실패 | 422 / 502 | `details.service` + `reason` |
+| `E700` | COLLECTION | 수집 파라미터·날짜 포맷 | 400 | `details.reason` + `target` |
+
+**설계 의도**
+
+- **코드는 7개로 고정, 세부 사유는 `details`로 확장**했습니다.
+  코드를 세분화(E501, E502…)하면 채널이 늘 때마다 코드표가 폭발하고 프론트 분기가 따라 늘어납니다.
+  프론트는 `error.code`로 **표시 방식**만 정하고, 필요할 때만 `details.reason`을 봅니다.
+- `E500`과 `E600`을 나눈 것이 실무적으로 가장 유용했습니다.
+  **E500 = 보내기 전에 우리가 잡은 위반** (셀러가 데이터를 고치면 해결),
+  **E600 = 보냈는데 채널이 거절** (원인 파악 필요).
+  운영 문의 대응 시 이 구분만으로 1차 트리아지가 끝납니다.
+- `details`의 식별자(`ch_goods_id`, `vendor_id`)를 구조화해서 넣어,
+  프론트가 메시지를 정규식으로 파싱하지 않아도 되게 했습니다.
+- `error.message`는 **사용자 노출 가능한 한국어**로 통일 — 토스트에 그대로 쓸 수 있습니다.
+- 이 규약을 **프론트엔드 분기 가이드 문서로 함께 작성**해 협업 비용을 줄였습니다.
+
+### 5-3. 부분 성공 (Row-level Result)
+
+상품 100건을 전송할 때 3건이 실패했다고 97건을 롤백하는 것은 셀러에게 최악입니다.
+벌크 API는 **HTTP 200으로 응답하되 건별 결과**를 담습니다.
+
+```json
+{
+  "success": true, "code": 200,
+  "data": {
+    "items": [
+      { "request_seq": 1, "request_id": 100, "success": true,  "data": {} },
+      { "request_seq": 2, "request_id": 101, "success": false,
+        "error": { "code": "E400", "message": "…", "details": { "reason": "model_invalid" } } }
+    ],
+    "totalCount": 2
+  }
+}
+```
+
+**`items[*].error`는 최상단 `error`와 완전히 동일한 스키마**입니다.
+프론트는 에러 렌더링 컴포넌트를 하나만 만들면 됩니다.
+
+내부적으로는 실패를 **예외 객체 그대로** 파이프라인 끝까지 들고 갑니다.
+
+```python
+# 문자열로 조기 변환하면 code/details가 소실된다 → 응답 조립 시점에 변환
+build_result.converted_failed.append((idx, channel_goods, False, converted, exception_obj, {}))
+...
+results.append(ResponseItem.fail_from(request_seq=idx, request_id=ch_goods.id, e=error_or_e))
+```
+
+에러를 조기에 `str()`로 만들면 `E400` / `details`가 모두 사라집니다.
+**예외를 값(value)으로 취급해 끝까지 운반**하는 것이 구조화 응답을 유지하는 핵심이었습니다.
+
+---
+
+## 6. 핵심 설계 4 — 선언형 검증 프레임워크
+
+### 6-1. 문제
+
+채널마다 필수값 정책이 다릅니다. 이를 명령형으로 쓰면 이렇게 됩니다.
+
+```python
+if not notice.category_name:
+    raise ...("고시정보 카테고리는 필수입니다")
+if not notice.detail_name:
+    raise ...("고시정보 항목은 필수입니다")
+if len(name) > 100:
+    raise ...("상품명은 100자 이내")
+# 채널 12개 × 필드 40개 = ...
+```
+
+또 하나의 문제는 **Pydantic 검증 시점**입니다.
+Pydantic이 생성 단계에서 죽어버리면 "이 상품의 어떤 필드가 왜 틀렸는지"를
+**여러 개 모아서** 알려줄 수 없습니다. 셀러는 한 번에 다 고치고 싶어 합니다.
+
+### 6-2. 해결 — 규칙을 데이터로 선언
+
+```python
+class ModelValidator:
+    """SQLAlchemy 모델 / Pydantic 모델에 믹스인하면 선언형 검증이 붙는다"""
+
+    __validators__: ClassVar[dict[str, FieldRule]] = {}
+
+    def validate_all(self) -> list[str]:
+        """등록된 필드를 전부 검사하고 에러를 '모아서' 반환 (첫 실패에서 멈추지 않음)"""
+        errors = []
+        for field_name, rule in self.__validators__.items():
+            self._resolve_max_length(field_name, rule)   # 아래 6-3
+            if error := rule.validate(getattr(self, field_name, None)):
+                errors.append(error)
+        return errors
+```
+
+사용하는 쪽은 규칙을 **선언만** 합니다.
+
+```python
+class CreateNotice(BaseModel, ModelValidator):
+    """상품 고시정보 — 필수값 누락을 Pydantic 생성 단계에서 죽이지 않고
+       Optional로 받아 ModelValidator로 흘려보낸다 (에러를 모아서 보여주기 위해)"""
+    noticeCategoryName: Optional[str] = None
+    noticeCategoryDetailName: Optional[str] = None
+    content: Optional[str] = None
+
+    __validators__ = {
+        "noticeCategoryName": FieldRule(
+            name="고시정보 카테고리",
+            checker=[RuleType.NOT_NULL],
+            message="고시정보 카테고리는 필수입니다.",
+        ),
+        ...
+    }
+```
+
+지원 규칙: `NOT_NULL` / `REAL_NOT_NULL`(공백 허용) / `MAX_LEN` / `MIN_VALUE` / `MAX_VALUE`
+/ `MULTIPLE_OF`(가격 10원 단위 등) / `ONE_OF` / `IS_TRUE`
+
+### 6-3. ORM 메타데이터에서 길이 자동 추론
+
+`MAX_LEN` 규칙에 길이를 안 적으면 **SQLAlchemy 컬럼 정의에서 자동으로 읽어옵니다.**
+
+```python
+def _resolve_max_length(self, field_name, rule):
+    if RuleType.MAX_LEN not in rule.checker or rule.max_length is not None:
+        return
+    col = inspect(self.__class__).columns.get(field_name)
+    if col is None or getattr(col.type, "length", None) is None:
+        # 설정 실수는 '개발자 실수'로 분류 (E400 config_invalid, 500)
+        raise ValidationException("config_invalid", target=f"{self.__class__.__name__}.{field_name}")
+    rule.max_length = col.type.length
+```
+
+`String(200)` 컬럼에 201자를 넣어 **DB에서 터지는 대신 애플리케이션에서 미리** 잡습니다.
+컬럼 길이를 바꾸면 검증 규칙도 자동으로 따라오므로 **두 곳을 동기화할 필요가 없습니다.**
+
+### 6-4. 실수를 사용자 에러와 분리
+
+`MAX_LEN`을 선언했는데 길이를 알 수 없으면 "사용자 입력 오류"가 아니라 **개발자 설정 오류**입니다.
+같은 `E400`이지만 `reason: config_invalid` + **HTTP 500**으로 내려
+운영에서 이 에러가 보이면 백엔드 점검이 필요하다는 신호가 되게 했습니다.
+
+### 6-5. 실제로 잡은 버그
+
+`NOT_NULL` 체커가 숫자 `0`을 통과시키지 못하는 문제가 있었습니다.
+`if not value` 로 판정하면 `0`, `""`, `False`가 모두 "없음"이 됩니다.
+가격 0원, 수량 0 같은 **유효한 0**을 누락으로 오판하던 케이스라,
+`None` 판정과 falsy 판정을 분리하고 `REAL_NOT_NULL`(진짜 None만 검사) 규칙을 추가해 해결했습니다.
+
+---
+
+## 7. 상품 등록 파이프라인
+
+### 7-1. 4단계 분리
+
+```python
+build_result = await self.build_ch_product_requests(request, create_image=True)  # 1. 조회 + 변환
+build_result = self.validate_ch_product_requests(build_result)                   # 2. 검증
+create_results = await self.post_ch_product_requests(build_result)               # 3. 전송
+create_results.extend(build_result.converted_failed)                             # 4. 결과 병합
+```
+
+각 단계를 독립 메서드로 분리한 이유는 **"검증만" API를 공짜로 얻기 위해서**입니다.
+화면에는 "전송 전 검증하기" 버튼이 있는데, `build → validate`까지만 실행하면 됩니다.
+전송 로직을 복제하지 않고 동일 코드 경로를 재사용하므로,
+**"검증은 통과했는데 전송에서 실패"하는 불일치가 구조적으로 발생하지 않습니다.**
+
+### 7-2. 실패 건은 파이프라인에서 빠지되 결과에는 남는다
+
+```python
+@dataclass
+class ChProductBuildResult:
+    converted_success: list   # 다음 단계로 진행
+    converted_failed: list    # 파이프라인에서 이탈, 응답 조립 시 재합류
+```
+
+변환 실패 → 검증 실패 → 전송 실패가 **각각 다른 단계에서 발생**하지만,
+모두 `converted_failed`에 같은 튜플 형태로 모여 마지막에 한 번에 응답으로 조립됩니다.
+`request_seq`(요청 순서)를 끝까지 보존해 **응답 순서가 요청 순서와 일치**합니다.
+
+### 7-3. 작업 이력(Job)의 트랜잭션 설계
+
+```python
+# 1) START를 별도 트랜잭션으로 '먼저 커밋' — 이후 뭐가 터져도 작업 기록은 남는다
+sync_job = ChGoodsSyncJob(batch_id=..., job_status_cd="RUNNING", started_at=now())
+job_service.save(sync_job)
+
+try:
+    ... 본 로직 ...
+    sync_job.job_status_cd = "COMPLETED"
+    sync_job.is_success = success_count > 0
+    self.session.commit()
+except Exception as e:
+    self.session.rollback()          # 본 작업은 롤백하되
+    sync_job.is_success = False      # 실패 기록은 남긴다
+    sync_job.error_message = safe_error_message(e)[:100]
+    self.session.commit()
+    raise                            # 원본 예외는 그대로 전파
+```
+
+작업 이력을 본 트랜잭션에 묶으면 **실패 시 실패 기록까지 같이 롤백**되어
+"작업이 실행된 적 없는 것처럼" 보입니다.
+START를 선 커밋해 **"시작했지만 실패함"이 항상 관측 가능**하도록 했습니다.
+
+수집(Collect) 쪽은 여기에 더해 **청크 단위 진행률**을 기록합니다.
+
+```python
+for start in range(0, item_count, CHUNK_SIZE):     # 100건 단위
+    chunk = raw_list[start:start + CHUNK_SIZE]
+    try:
+        saved = save_bulk(convert_bulk_raw(chunk, converter, ...))
+        processed_count += len(saved)
+    except Exception as e:
+        log.error(f"chunk(start={start}) 처리 실패, 다음 청크로 계속: {e}")   # 청크 실패 격리
+    self._update_raw_job_progress(..., item_count, processed_count)          # 화면 진행률
+```
+
+수천 건 수집 시 화면에 진행률을 보여줄 수 있고, 한 청크의 실패가 전체를 중단시키지 않습니다.
+
+---
+
+## 8. 쿠팡(Coupang) 연동 상세
+
+> 담당 채널. 수집 / 등록 / 수정 / 카테고리 / 배송지 전 기능 구현
+
+### 8-1. HMAC-SHA256 서명 인증
+
+쿠팡은 요청마다 서명 헤더를 요구합니다. 서명 대상 문자열 조합 규칙이 엄격합니다.
+
+```python
+def generate_authorization(access_key, secret_key, method, path, query=None):
+    timestamp = datetime.now(timezone.utc).strftime("%y%m%dT%H%M%SZ")   # 반드시 UTC
+    query_string = urllib.parse.urlencode(query) if query else ""
+    message = timestamp + method + path + query_string                  # 순서 고정
+    signature = hmac.new(secret_key.encode(), message.encode(), hashlib.sha256).hexdigest()
+    return {
+        "Authorization": f"CEA algorithm=HmacSHA256, access-key={access_key}, "
+                         f"signed-date={timestamp}, signature={signature}",
+        "Content-Type": "application/json;charset=UTF-8",
+    }
+```
+
+**디버깅 포인트**
+
+- 서버 로컬 타임존(KST)으로 timestamp를 만들면 **9시간 차이로 전부 401**이 납니다. UTC 고정이 필수.
+- 서명에 쓴 query string과 실제 전송 query string이 **인코딩·순서까지 동일**해야 합니다.
+  서명용/전송용을 각각 만들면 미묘하게 어긋나므로 **같은 dict를 서명과 전송에 공유**하도록 설계했습니다.
+
+### 8-2. 인증 정보 지연 초기화
+
+```python
+class CoupangApiClient(BaseApiClient):
+    def initialize(self, db: Session, vendor_id: int, partner_id: int):
+        vendor = VendorRepository(db).get_by_vendor_id(vendor_id, partner_id)
+        self.access_key, self.secret_key = vendor.access_key, vendor.secret_key
+        self.vendor_code = vendor.ch_vendor_id
+
+    async def collecting_products(self, **kwargs):
+        self.initialize(db, vendor_id, partner_id)
+        require_initialized(self.access_key and self.secret_key, channel="coupang")  # 가드
+```
+
+인증 키는 **셀러(vendor)마다 다르므로** 생성자에서 주입할 수 없고 호출 시점에 DB에서 로드합니다.
+`initialize()` 누락이 "서명이 이상한 401"로 나타나면 원인 파악이 어려우므로,
+**`require_initialized` 가드**로 `E300 client_not_initialized`를 명시적으로 던지게 했습니다.
+
+### 8-3. 상품 수집 — 커서 페이징 + 동시성 제한 병렬 상세조회
+
+쿠팡은 목록 API와 상세 API가 분리되어 있어, 상품 1000건 수집 시 **1 + 1000 요청**이 필요합니다.
+순차 호출하면 매우 느리고, 전부 병렬로 던지면 쿼터 제한에 걸립니다.
+
+```python
+MAX_PER_PAGE = 100          # 목록 API 최대치
+DETAIL_CONCURRENCY = 5      # 상세 조회 동시 호출 상한
+
+async def get_all_product_list(self, created_at_from=None, created_at_to=None):
+    """커서(nextToken) 기반 전체 순회"""
+    collected, next_token = [], None
+    for _ in range(10_000):                       # 무한루프 방지 안전장치
+        resp = await self.get_product_list(next_token, created_at_from, created_at_to)
+        collected.extend(resp.data)
+        if len(resp.data) < MAX_PER_PAGE:         # 마지막 페이지
+            break
+        next_token = resp.nextToken
+        if not next_token:                        # 정확히 100건인데 토큰이 없는 경계 케이스
+            break
+        await asyncio.sleep(1)                    # 페이지 간 간격
+    return collected
+
+async def _fetch_all_details(self, product_ids: list[int]) -> list[dict]:
+    """Semaphore로 동시 호출 수를 제한한 병렬 상세 조회"""
+    sem = asyncio.Semaphore(DETAIL_CONCURRENCY)
+
+    async def _one(pid):
+        async with sem:
+            try:
+                return (await self.get_product_detail(pid)).model_dump()
+            except Exception as e:
+                log.warning(f"쿠팡 상세 조회 실패 스킵 | product_id={pid} | error={e}")
+                return None      # 1건 실패가 전체 수집을 무너뜨리지 않는다
+
+    results = await asyncio.gather(*[_one(p) for p in product_ids])
+    return [r for r in results if r is not None]
+```
+
+**설계 포인트**
+
+- **세마포어로 동시성 상한**을 두어 병렬성과 쿼터를 동시에 만족시켰습니다.
+  `asyncio.gather`만 쓰면 1000개 요청이 한꺼번에 나갑니다.
+- **종료 조건을 이중으로** 두었습니다. `nextToken`만 믿으면 정확히 100건 응답에
+  토큰이 없는 경계에서 멈추지 못합니다. `len(data) < MAX_PER_PAGE` 조건을 함께 검사합니다.
+- **개별 실패는 warning 후 스킵**합니다. 1000건 중 3건의 상세 조회 실패로
+  나머지 997건을 버리는 것은 손해입니다.
+- `max_pages` 안전장치로 채널 API 이상 동작 시 무한 루프를 차단했습니다.
+- 날짜 파라미터는 `YYYY-MM-DD`만 허용되므로 `_normalize_date()`로 정규화해
+  화면이 보내는 시분초 포함 문자열을 흡수했습니다.
+
+### 8-4. 상품 등록
+
+```python
+async def create_ch_product(self, db, convert_success: list, vendor) -> list:
+    self.initialize(db, vendor.id, vendor.partner_id)
+    result = []
+    for idx, channel_goods, converted in convert_success:
+        try:
+            headers = generate_authorization(..., method="POST", path=path)
+            response = await self.post(path, data=converted.model_dump(exclude_none=True),
+                                       extra_headers=headers)
+            if response.get("code") == "200" or response.get("data"):
+                channel_goods.ch_goods_pk = str(response.get("data"))   # 채널 상품키 확보
+                result.append((idx, channel_goods, True, converted, None, {}))
+            else:
+                err = ExternalApiException("coupang", "rejected", target="create_ch_product",
+                                           ch_goods_id=channel_goods.id,
+                                           response_code=response.get("code"),
+                                           message=str(response.get("message")))
+                result.append((idx, channel_goods, False, converted, err, response))
+        except Exception as e:
+            result.append((idx, channel_goods, False, converted, safe_error_message(e), {}))
+    return result
+```
+
+- `exclude_none=True` — 쿠팡은 명시적 `null`을 잘못된 값으로 해석하는 필드가 있어
+  **미설정과 null을 구분**해야 했습니다.
+- 등록 성공 시 반환되는 `sellerProductId`를 `ch_goods_pk`에 저장합니다.
+  **이후 수정·조회의 유일한 키**이므로 이것을 놓치면 상품이 고아가 됩니다.
+- **HTTP 200인데 실패**인 케이스(응답 body의 `code`로 판별)를 별도 처리했습니다.
+  status code만 보면 조용히 실패합니다.
+- 실패 응답 원문(`response`)을 `error_info`에 통째로 보관해 운영 문의 시 근거로 사용합니다.
+
+### 8-5. 상품 수정 — 옵션 ID 역매핑 + 2-Phase 가격 반영
+
+수정이 등록보다 훨씬 까다로웠습니다. 두 가지 이유 때문입니다.
+
+**(1) 옵션 단위 ID를 우리가 모른다**
+쿠팡은 옵션마다 `sellerProductItemId`와 `vendorItemId`를 자체 발급합니다.
+수정하려면 이 ID들이 payload에 들어가야 하는데, 우리 DB에는 상품 단위 키만 있습니다.
+
+**(2) 판매가가 즉시 반영되지 않는다**
+상품 수정 PUT은 쿠팡 내부 승인 프로세스를 거치므로 가격이 바로 바뀌지 않습니다.
+셀러는 "가격 바꿨는데 왜 그대로냐"고 문의합니다.
+
+```python
+# 1. 상세 조회로 옵션 단위 ID와 현재 가격을 확보
+detail = await self.get_product_detail(seller_product_id)
+id_map = {i.itemName: (i.sellerProductItemId, i.vendorItemId) for i in detail.data.items if i.itemName}
+current_price_map = {i.vendorItemId: i.salePrice for i in detail.data.items if i.vendorItemId}
+
+# 2. 옵션명(itemName) 기준으로 ID 역매핑 주입
+converted.sellerProductId = seller_product_id
+for item in converted.items:
+    if ids := id_map.get(item.itemName):
+        item.sellerProductItemId, item.vendorItemId = ids
+    else:
+        log.warning(f"옵션 매칭 실패 | itemName={item.itemName}")   # 신규 옵션 → 쿠팡이 새로 발급
+
+# 3. 상품 수정 PUT
+response = await self.put(path, data=converted.model_dump(exclude_none=True), extra_headers=headers)
+
+# 4. 판매가는 옵션 단위 전용 API로 즉시 반영 (2-Phase)
+price_results = await self._update_vendor_item_prices(channel_goods, converted.items, current_price_map)
+```
+
+가격 반영 단계의 세부 처리:
+
+```python
+async def _update_vendor_item_prices(self, channel_goods, items, current_price_map):
+    for item in items:
+        if not item.vendorItemId:
+            continue                                   # 신규 옵션은 대상 아님
+        price = (int(item.salePrice) // 10) * 10       # 쿠팡 정책: 10원 단위 (절삭)
+        if price <= 0:
+            continue
+        if current_price_map.get(item.vendorItemId) == price:
+            continue                                   # 변동 없으면 호출 생략 (쿼터 절약)
+        try:
+            await self.put(f"{PRICE_PATH}/{item.vendorItemId}/prices/{price}", ...)
+        except Exception as e:
+            log.warning(...)                           # 가격 실패가 수정 성공을 뒤집지 않는다
+```
+
+**설계 포인트**
+
+- **옵션명(itemName)을 매칭 키로** 사용했습니다. 쿠팡 발급 ID를 우리가 저장해두는 방법도 있지만,
+  옵션 추가/삭제 시 동기화 실패로 잘못된 옵션을 덮어쓸 위험이 있습니다.
+  매 수정마다 **조회로 최신 ID를 가져오는 쪽**이 요청 1회를 더 쓰더라도 안전합니다.
+- **현재 가격과 비교해 변동 없으면 호출을 생략**합니다.
+  옵션 50개 상품에서 1개만 가격이 바뀌었는데 50회 호출하는 것은 쿼터 낭비입니다.
+- **가격 변경 실패는 전체 수정 결과를 뒤집지 않습니다.**
+  상품 정보 수정은 성공했는데 가격 API 하나 실패로 "실패"로 처리하면 재시도 시 중복 수정이 발생합니다.
+  대신 건별 결과를 `priceUpdates`로 응답에 담아 **부분 실패를 관측 가능**하게 했습니다.
+- `ch_goods_pk` 부재는 외부 호출 전에 `ChannelBusinessException`으로 **선차단**합니다.
+  (E500, 셀러가 조치 가능한 오류로 분류)
+
+### 8-6. 카테고리 및 고시정보 매핑
+
+```python
+def _get_last_depth_code(self, category_code: dict) -> str:
+    """depth1~4 중 값이 있는 가장 마지막 depth 반환. 전부 비면 '0'(루트)"""
+    for key in ("depth4", "depth3", "depth2", "depth1"):
+        value = category_code.get(key)
+        if value not in (None, "", "null"):   # None / 빈문자 / 문자열 "null" 전부 방어
+            return value
+    return "0"
+```
+
+- 화면이 보내는 카테고리는 depth가 가변이라 **"값이 있는 마지막 depth"** 를 찾아 하위 카테고리를 조회합니다.
+- `"null"` **문자열**까지 방어한 것은 실제 운영 데이터에서 나온 케이스입니다.
+  JSON 직렬화 경로에 따라 null이 문자열로 굳는 경우가 있었습니다.
+- 응답에서 `status == "ACTIVE"`인 카테고리만 필터링해 **폐지된 카테고리 선택을 원천 차단**했습니다.
+- 카테고리별 **필수 고시정보 항목**을 조회하는 메타 API를 연동하고,
+  마스터 상품의 고시정보를 쿠팡 항목명으로 해석하는 **매핑 테이블**을 별도 모듈로 구축했습니다.
+  (고시정보 누락은 쿠팡 등록 거절 사유 1위였습니다)
+
+---
+
+## 9. 성능·안정성 개선 사례
+
+### 9-1. 요청당 DB 커넥션 2개 → 1개
+
+**문제**
+`StageService`가 채널 고유 엔드포인트를 호출할 때 `httpx.ASGITransport`로 **in-process 디스패치**를 합니다.
+자기 자신을 HTTP로 호출하는 셈이라, 내부 요청이 `Depends(get_db)`로 **새 세션을 하나 더** 엽니다.
+동시 요청이 늘자 커넥션 풀이 고갈됐습니다.
+
+**해결 — ContextVar 기반 세션 대여**
+
+```python
+_borrowed_session: ContextVar = ContextVar("_borrowed_session", default=None)
+
+@contextmanager
+def use_shared_session(session):
+    """이 블록 안의 내부 디스패치 요청은 새 커넥션을 열지 않고 이 세션을 재사용한다"""
+    token = _borrowed_session.set(session)
+    try:
+        yield
+    finally:
+        _borrowed_session.reset(token)
+
+def get_db():
+    if (borrowed := _borrowed_session.get()) is not None:
+        yield borrowed        # 디스패치 중: 재사용. close/rollback은 소유자(바깥)가 담당
+        return
+    db = SessionLocal()
+    try:
+        yield db
+    except Exception:
+        db.rollback(); raise
+    finally:
+        db.close()
+```
+
+호출부:
+
+```python
+with use_shared_session(self.session):
+    async with httpx.AsyncClient(transport=ASGITransport(app=app), ...) as client:
+        resp = await client.post(path, json=payload, headers={"x-internal-dispatch": "1"})
+```
+
+**효과**
+
+- 커넥션 사용량 **2 → 1**, 풀 고갈 해소
+- 내부/외부 작업이 **하나의 트랜잭션**으로 묶여 일관성도 함께 개선
+- `ContextVar`는 asyncio 태스크별로 격리되므로 **동시 요청 간 세션이 섞이지 않습니다.**
+  (전역 변수나 스레드로컬로는 async 환경에서 불가능한 접근)
+- 소유권 규칙을 명확히 했습니다 — **대여한 쪽은 절대 close/rollback 하지 않습니다.**
+
+### 9-2. API 로그 동기 INSERT 제거
+
+**문제**
+모든 요청/응답을 `api_log` 테이블에 남기는데, 미들웨어가 **응답 경로에서 직접 INSERT + COMMIT** 했습니다.
+async 미들웨어 안에서 동기 psycopg2 호출이 일어나 **이벤트 루프가 블로킹**되고,
+요청마다 커넥션을 추가로 체크아웃해 풀 압박을 가중시켰습니다.
+
+**해결 — 큐 + 백그라운드 배치 워커**
+
+```
+[미들웨어] --enqueue(dict)--> [Queue(maxsize=10,000)] --배치 drain--> [daemon thread] --> DB
+                                   drop-oldest                        50건 / 500ms
+```
+
+```python
+def enqueue(payload: dict) -> None:
+    """큐가 가득 차면 가장 오래된 것을 버린다 (drop-oldest)"""
+    try:
+        _queue.put_nowait(payload)
+    except queue.Full:
+        try:
+            _queue.get_nowait()          # 오래된 로그 폐기
+            _dropped_count += 1
+        except queue.Empty:
+            pass
+        _queue.put_nowait(payload)
+
+def _flush(items: list[dict]) -> None:
+    """한 트랜잭션으로 배치 INSERT"""
+    session = SessionLocal()
+    try:
+        session.add_all([ApiLog(**p) for p in items])
+        session.commit()
+    except Exception as e:
+        session.rollback(); log.error(f"[api-log-writer] flush failed batch={len(items)} err={e}")
+    finally:
+        session.close()
+```
+
+**설계 포인트**
+
+- **drop-oldest 정책**: 로그 때문에 서비스가 멈추면 안 됩니다.
+  큐가 차면 **오래된 로그를 버리고 최신 요청은 받습니다.** (최신 로그가 장애 분석에 더 유용)
+- **버린 개수를 카운트해 30초마다 통계 로그**로 남깁니다. 조용히 유실되지 않게 하기 위함입니다.
+- **graceful shutdown**: FastAPI `lifespan` 종료 훅에서 워커를 정지시키며 **잔여 큐를 flush**합니다.
+  배포 시 마지막 로그가 사라지지 않습니다.
+- 배치 크기·플러시 주기·큐 크기를 **환경변수로 노출**해 재배포 없이 튜닝 가능하게 했습니다.
+
+**효과** — 응답 경로에서 DB 커밋 제거, 이벤트 루프 블로킹 해소, 커넥션 풀 압박 완화
+
+### 9-3. SSE 커넥션 누수 제거
+
+작업 진행 알림을 Server-Sent Events로 내보내는데,
+클라이언트가 탭을 닫아도 서버 쪽 제너레이터가 남아 DB 폴링을 계속하는 누수가 있었습니다.
+연결 상태 확인과 하트비트(`: heartbeat`)를 추가하고 폴링 쿼리를 최적화해 정리했습니다.
+
+```python
+yield f"event: connected\ndata: {json.dumps({...})}\n\n"
+while True:
+    if new := fetch_new_notifications(...):
+        yield f"event: notification\ndata: {json.dumps(new, default=str)}\n\n"
+    else:
+        yield ": heartbeat\n\n"     # 프록시 타임아웃 방지 + 끊긴 연결 조기 감지
+```
+
+### 9-4. 벌크 처리 전환
+
+- 상품 삭제가 **단건 요청 N회** → 다건 요청 1회로 전환
+- 대시보드 집계가 위젯별 개별 쿼리 → 한 번에 조회하도록 통합
+- 채널상품 생성/삭제 API의 단건 인터페이스를 리스트 인터페이스로 통일
+
+### 9-5. 커넥션 이중 점유 제거
+
+일부 서비스가 자기 세션을 만들면서 상위 세션도 함께 들고 있어 요청당 커넥션 2개를 잡던 문제를,
+세션 주입 규칙을 **"세션은 항상 생성자로 주입받고, 서비스는 세션을 만들지 않는다"** 로 통일해 해결했습니다.
+
+---
+
+## 10. 운영 가시성
+
+외부 API 12개를 붙인 시스템에서 **"왜 느린가 / 왜 실패했는가"** 를 알 수 없으면 운영이 불가능합니다.
+튜닝보다 **관측 장치를 먼저** 심었습니다.
+
+### 10-1. 슬로우 쿼리 자동 감지
+
+```python
+@event.listens_for(engine, "after_cursor_execute")
+def _after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+    elapsed_ms = (time.monotonic() - context._query_start) * 1000
+    if elapsed_ms >= SLOW_QUERY_THRESHOLD_MS:        # 기본 100ms, env로 조정
+        log.bind(event="slow-query", elapsed_ms=round(elapsed_ms, 2)) \
+           .warning(f"[slow-query] {elapsed_ms:.1f}ms :: {statement[:200]}")
+```
+
+SQLAlchemy 이벤트 훅이라 **애플리케이션 코드 수정 없이 전 쿼리에 적용**됩니다.
+
+### 10-2. 이벤트 루프 블로킹 감지
+
+```python
+loop = asyncio.get_running_loop()
+loop.slow_callback_duration = float(os.getenv("SLOW_CALLBACK_DURATION_SEC", "0.1"))
+```
+
+async 함수 안에 동기 I/O(DB 호출, `requests`, 파일 읽기)가 섞이면 이벤트 루프가 멈춥니다.
+가장 찾기 어려운 성능 버그인데, 이 설정 한 줄로 **100ms 이상 블로킹되면 경고**가 뜹니다.
+9-2의 문제도 이 장치로 발견했습니다.
+
+### 10-3. 요청 추적
+
+```python
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        rid = request.headers.get("X-Request-Id") or str(uuid.uuid4())
+        request.state.request_id = rid
+        token_rid = REQUEST_ID.set(rid)          # ContextVar → 모든 로그에 자동 포함
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-Id"] = rid
+            return response
+        finally:
+            log.bind(event="access", method=..., path=..., status_code=..., latency_ms=...).info("access")
+            REQUEST_ID.reset(token_rid)
+```
+
+- `ContextVar`에 담아 **모든 로그 라인에 request_id가 자동으로 붙습니다.** (인자로 넘길 필요 없음)
+- 에러 응답 본문에도 `request_id`를 실어, 셀러 문의 시 **화면 캡처 한 장으로 로그를 특정**할 수 있습니다.
+- 응답 헤더로도 내려 프론트엔드 콘솔에서 바로 확인 가능합니다.
+
+### 10-4. 스캐너·봇 트래픽 차단
+
+운영 서버에 인터넷 스캐너 트래픽이 계속 유입되어 `api_log`를 오염시켰습니다.
+미들웨어 앞단에서 필터링합니다.
+
+- `.php` / `.asp` / `.jsp` 확장자 요청 → 404 즉시 반환 (핸들러 실행 없음)
+- 알려진 스캐너 경로 키워드 및 User-Agent 차단
+- **도메인 없이 IP로 직접 들어온 요청 차단**
+- health check / docs 경로는 로그 기록 제외
+- 내부 ASGI 디스패치(`x-internal-dispatch`)는 이중 기록 방지를 위해 제외
+
+### 10-5. 작업 이력 테이블
+
+`ch_goods_raw_job`(수집) / `ch_goods_sync_job`(전송) 테이블에
+`batch_id` 단위로 시작·종료 시각, 대상 건수, 처리 건수, 성공 여부, 에러 메시지를 남깁니다.
+건별 상세는 `ch_goods_sync`에 **전송 전/후 payload(JSONB)와 `trace_id`** 까지 보관해,
+"이 상품이 언제 어떤 값으로 전송되어 어떤 응답을 받았는지"를 사후 재구성할 수 있습니다.
+
+---
+
+## 11. 보안·인증
+
+| 계층 | 방식 |
+|---|---|
+| 화면 → 서버 | JWT (Access / Refresh). 라우터 레벨 `dependencies=[Depends(get_current_user)]` 로 일괄 적용 |
+| 외부 시스템 → 서버 | API Key + Auth Key 교환 → Authorization Code 방식 토큰 발급 |
+| 서버 → 채널 | 채널별 상이 — HMAC 서명(쿠팡) / OAuth2 Authorization Code(카페24) / API Key |
+| 자격증명 저장 | 벤더 단위로 DB 보관, 조회 시점 로드. 코드·설정 파일에 하드코딩 없음 |
+| 설정 분리 | `ENV`에 따라 `.env.{env}` 로드. 민감정보는 저장소 미포함 |
+
+**라우터 레벨 인증 일괄 적용**이 설계 포인트입니다.
+
+```python
+auth_dep = [Depends(get_current_user)]
+
+router.include_router(health_router, prefix="/health")                       # 오픈
+router.include_router(auth_router,   prefix="/auth")                         # 오픈
+router.include_router(goods_api,     prefix="/goods",    dependencies=auth_dep)
+router.include_router(ch_goods_api,  prefix="/ch-goods", dependencies=auth_dep)
+...  # 이하 전부 인증 필수
+```
+
+엔드포인트마다 데코레이터를 붙이면 **깜빡한 하나가 곧 취약점**입니다.
+라우터 단위로 묶고 **"오픈 API는 명시적으로 예외 목록에만 존재"** 하게 만들어
+인증 누락이 구조적으로 발생하지 않게 했습니다.
+
+로컬 개발용 토큰 발급 헬퍼는 `ENV=local`에서만 동작하며,
+운영에서는 문서에 노출되지 않고 호출 시 404를 반환합니다.
+
+---
+
+## 12. 개발 프로세스와 협업
+
+8명이 동시에 작업하면서 겪은 문제와 대응입니다.
+
+| 문제 | 대응 |
+|---|---|
+| 채널 담당자 간 파일 충돌 | 채널별 디렉터리 완전 분리 + 공통 코드 변경 최소화 설계 |
+| 코드 스타일 논쟁 | **ruff** 로 format + lint + import 정렬 통일, **pre-commit hook** 으로 강제 |
+| 에디터별 설정 차이 | `ruff.toml` 단일 기준 + `.editorconfig` (VS Code / PyCharm 무관 동일 결과) |
+| 프론트-백엔드 에러 규약 불일치 | 에러 카탈로그 + **프론트 분기 가이드 문서** 작성 |
+| 신규 합류자 온보딩 | 코딩 컨벤션 / 폴더 구조 / 로컬 실행 / 채널 추가 방법을 README에 문서화 |
+| 채널 추가 방법 전파 | `_template/` 디렉터리에 스켈레톤 제공 |
+
+**배포**
+
+```dockerfile
+FROM --platform=linux/amd64 python:3.11-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 TZ=Asia/Seoul
+...
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9000"]
+```
+
+- `TZ=Asia/Seoul` 고정 — 컨테이너 기본 UTC로 인한 날짜 경계 버그 방지
+  (단, **채널 서명용 timestamp는 명시적으로 UTC**를 사용합니다)
+- `--platform=linux/amd64` 명시 — ARM 개발 장비와 x86 운영 서버 간 이미지 불일치 방지
+- 로컬은 docker-compose로 PostgreSQL을 띄워 동일 환경 재현
+
+---
+
+## 13. 회고
+
+### 잘한 결정
+
+**1. 공통화의 경계를 먼저 정한 것**
+"무엇을 공통화하고 무엇을 채널에 맡길 것인가"를 코드 작성 전에 정의했습니다.
+*변하지 않는 것(파이프라인 · 검증 · 에러 규약 · 재시도)은 공통, 변하는 것(스펙 매핑 · 인증 · 엔드포인트)은 어댑터.*
+이 기준이 6개월간 12개 채널이 붙는 동안 흔들리지 않았고,
+공통 코드를 수정하지 않고 채널을 추가할 수 있었습니다.
+
+**2. 원본 데이터를 버리지 않은 것**
+`ch_goods_raw`에 채널 응답 원문을 JSONB로 보관한 덕분에,
+매핑 로직 버그를 발견해도 **재수집 없이 재변환만으로 복구**할 수 있었습니다.
+외부 API 재호출은 느리고 쿼터를 소모하며 실패할 수도 있습니다.
+
+**3. 에러를 값으로 다룬 것**
+예외를 조기에 문자열로 만들지 않고 객체 그대로 파이프라인 끝까지 운반한 설계가
+부분 성공 응답과 구조화된 에러 카탈로그를 동시에 가능하게 했습니다.
+
+**4. 관측 장치를 먼저 심은 것**
+슬로우 쿼리 훅, 이벤트 루프 블로킹 감지, request_id 추적을 초기에 넣어둔 덕분에
+성능 문제를 추측이 아니라 **로그를 근거로** 잡을 수 있었습니다.
+
+### 아쉬운 점 / 다음에 할 것
+
+- **테스트 자동화 부족.** 외부 API 의존이 커서 수동 검증 비중이 높았습니다.
+  채널 응답을 픽스처로 고정한 **Converter 단위 테스트**와 HTTP 레벨 목킹을 먼저 깔았어야 했습니다.
+  Converter는 순수 함수에 가까워 테스트 비용 대비 효과가 가장 큰 지점이었습니다.
+- **대량 작업의 비동기 처리.** 수천 건 수집·전송을 요청-응답 사이클 안에서 처리해
+  타임아웃 여유에 의존했습니다. 작업 큐(Celery / SQS + 워커)로 분리하고
+  진행률을 폴링/SSE로 노출하는 구조가 더 적합합니다.
+  현재의 Job 테이블 + 청크 진행률 설계는 그 전환의 준비 단계이기도 합니다.
+- **채널 API 쿼터의 중앙 관리.** 동시성 상한을 채널 구현체마다 상수로 두었는데,
+  벤더 단위 레이트 리미터로 중앙화하면 다중 셀러 동시 작업 시 더 안전합니다.
+- **카테고리 매핑 자동화.** 채널 간 카테고리 체계 매핑이 아직 수동 개입에 의존합니다.
+  매핑 테이블 + 유사도 기반 추천으로 개선할 여지가 큽니다.
