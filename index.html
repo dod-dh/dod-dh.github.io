@@ -7,7 +7,7 @@
   <title>도협 | Developer Portfolio</title>
   <meta
     name="description"
-    content="AI, ERP, Mobile 분야의 Software Developer 포트폴리오"
+    content="AI, ERP, Mobile, Game 분야의 Software Developer 포트폴리오"
   />
 
   <!-- Pretendard — free/open-source Korean font -->
@@ -769,6 +769,7 @@
     }
 
     .modal-image-wrap {
+      position: relative;
       margin-top: 25px;
       overflow: hidden;
       border: 1px solid var(--line);
@@ -780,7 +781,85 @@
       display: block;
       width: 100%;
       max-height: 430px;
-      object-fit: cover;
+      object-fit: contain;
+      background: #f7f8fb;
+      transition: opacity 0.18s ease, transform 0.22s ease;
+    }
+
+    .modal-image.is-changing {
+      opacity: 0;
+      transform: translateX(12px);
+    }
+
+    .modal-image-nav {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      pointer-events: none;
+    }
+
+    .modal-image-button {
+      width: 40px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(230,232,240,0.95);
+      border-radius: 50%;
+      background: rgba(255,255,255,0.94);
+      color: #687087;
+      box-shadow: 0 8px 24px rgba(30,36,60,0.12);
+      cursor: pointer;
+      font-size: 22px;
+      line-height: 1;
+      pointer-events: auto;
+      transition: transform 0.18s ease, color 0.18s ease, background 0.18s ease;
+    }
+
+    .modal-image-button:hover {
+      color: var(--purple);
+      background: #fff;
+      transform: scale(1.05);
+    }
+
+    .modal-image-counter {
+      position: absolute;
+      left: 50%;
+      bottom: 12px;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 9px;
+      border: 1px solid rgba(230,232,240,0.9);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.92);
+      box-shadow: 0 6px 18px rgba(30,36,60,0.09);
+    }
+
+    .modal-image-dot {
+      width: 6px;
+      height: 6px;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      background: #d6d9e3;
+      cursor: pointer;
+    }
+
+    .modal-image-dot.is-active {
+      width: 18px;
+      border-radius: 999px;
+      background: var(--purple);
+    }
+
+    .modal-image-label {
+      margin-top: 9px;
+      color: var(--text-muted);
+      font-size: 11px;
+      text-align: center;
     }
 
     .modal-image-placeholder {
@@ -1573,7 +1652,13 @@
           <div class="modal-image-placeholder" id="modalImagePlaceholder">
             프로젝트 화면 캡처를 준비 중입니다.
           </div>
+          <div class="modal-image-nav" id="modalImageNav" aria-hidden="true">
+            <button class="modal-image-button" id="modalImagePrev" type="button" aria-label="이전 이미지">‹</button>
+            <button class="modal-image-button" id="modalImageNext" type="button" aria-label="다음 이미지">›</button>
+          </div>
+          <div class="modal-image-counter" id="modalImageCounter"></div>
         </div>
+        <div class="modal-image-label" id="modalImageLabel"></div>
 
         <div class="modal-section">
           <h5>문제와 해결</h5>
@@ -1630,9 +1715,12 @@
           "테넌트별 LLM 호출량·MCP Tool 호출량·Agent 실행 이력을 조회하는 관리자 페이지 구축"
         ],
         tags: ["Python", "FastAPI", "LangChain", "Claude", "MCP", "RapidFuzz", "Phoenix", "AWS", "ECS", "Fargate", "PostgreSQL"],
-        image: "./images/ai-matching-agent.png",
+        images: [
+          "./images/ai-matching-dashboard.png",
+          "./images/ai-matching-job.png",
+          "./images/ai-matching-phoenix.png"
+        ],
         architecture: "./docs/ai-matching-agent.md",
-        github: "https://github.com/dod-dh/ai-matching-agent"
       },
       rag: {
         badge: "COMPANY",
@@ -1648,7 +1736,11 @@
           "실제 업무에서 사용할 수 있는 상용화 AI 챗봇 서비스 구축"
         ],
         tags: ["Python", "Pinecone", "Embedding", "Gemini", "RAG", "LLM"],
-        image: "./images/rag-chatbot.png",
+        images: [
+          "./images/dashboard_blur.png",
+          "./images/consultation_blur.png",
+          "./images/ai-rules_blur.png"
+        ],
         architecture: "./docs/chatbot-rag.md",
         github: "https://github.com/dod-dh/chatbot-pub"
       },
@@ -1667,7 +1759,10 @@
           "AWS EC2 기반 서버 배포 및 GitHub Actions CI/CD 구성"
         ],
         tags: ["Python", "MCP SDK", "PyMySQL", "PyJWT", "Paramiko", "Claude Sonnet", "MySQL", "AWS"],
-        image: "./images/mcp-server.png",
+        images: [
+          "./images/mcp-server.png",
+          "./images/mcp-server2.png"
+        ],
         architecture: "./docs/mcp-server.md",
         github: "https://github.com/dod-dh/mcpserver"
       },
@@ -1685,7 +1780,7 @@
           "YouTube Data API v3 기반 자동 업로드"
         ],
         tags: ["Gemini", "LLM", "TTS", "FFmpeg", "Python", "YouTube API"],
-        image: "./images/youtube-pipeline.png",
+        images: ["./images/youtube-pipeline.png"],
         architecture: "./docs/youtube-pipeline.md",
         github: "https://github.com/dod-dh/aiYoutubePipeline"
       },
@@ -1703,7 +1798,7 @@
           "리소스 및 API 처리 성능 최적화"
         ],
         tags: ["Python", "FastAPI", "REST API", "Automation"],
-        image: "./images/stock-erp.png",
+        images: ["./images/stock-erp.png"],
         architecture: "./docs/stock-erp.md",
         github: "https://github.com/dod-dh/stock-ERP-pub"
       },
@@ -1721,7 +1816,7 @@
           "GitHub Tag 기반 자동 빌드 및 업데이트 Pipeline"
         ],
         tags: ["Electron", "React", "Vite", "Zustand", "SQLite", "PHP", "MySQL"],
-        image: "./images/electron-pos.png",
+        images: ["./images/electron-pos.png"],
         architecture: "./docs/electron-pos.md",
         github: "https://github.com/dod-dh/electron-POS"
       },
@@ -1738,7 +1833,7 @@
           "Message Queue 기반 알림톡 발송 로직 구현"
         ],
         tags: ["PHP", "JavaScript", "HTML", "CSS", "ERP", "Database"],
-        image: "./images/customer-erp.png",
+        images: ["./images/customer-erp.png"],
         architecture: "./docs/customer-erp.md",
         github: "#"
       },
@@ -1756,7 +1851,7 @@
           "RevenueCat Webhook 기반 구독 상태 동기화"
         ],
         tags: ["React Native", "Expo", "Supabase", "PostgreSQL", "RevenueCat"],
-        image: "./images/saiondo.png",
+        images: ["./images/saiondo.png"],
         architecture: "./docs/saiondo.md",
         github: "https://github.com/dod-dh/saiondo-pub"
       },
@@ -1773,7 +1868,7 @@
           "저장 데이터 최소화 및 검증 자동화"
         ],
         tags: ["Godot", "GDScript", "Python", "AI Agent", "2D Sprite"],
-        image: "./images/rpg.png",
+        images: ["./images/rpg.png"],
         architecture: "./docs/rpg.md",
         github: "https://github.com/dod-dh/RPG-pub"
       },
@@ -1790,7 +1885,7 @@
           "버프 영토와 중립 영토 등 콘텐츠 구성"
         ],
         tags: ["Godot", "Strategy", "Mobile", "2D"],
-        image: "./images/conquest.png",
+        images: ["./images/conquest.png"],
         architecture: "./docs/conquest.md",
         github: "https://github.com/dod-dh/conquest-pub"
       }
@@ -1805,14 +1900,108 @@
     const modalProblem = document.getElementById("modalProblem");
     const modalPoints = document.getElementById("modalPoints");
     const modalTags = document.getElementById("modalTags");
+    const modalImageWrap = document.getElementById("modalImageWrap");
     const modalImage = document.getElementById("modalImage");
     const modalImagePlaceholder = document.getElementById("modalImagePlaceholder");
+    const modalImageNav = document.getElementById("modalImageNav");
+    const modalImagePrev = document.getElementById("modalImagePrev");
+    const modalImageNext = document.getElementById("modalImageNext");
+    const modalImageCounter = document.getElementById("modalImageCounter");
+    const modalImageLabel = document.getElementById("modalImageLabel");
     const modalArchitecture = document.getElementById("modalArchitecture");
     const modalGithub = document.getElementById("modalGithub");
+
+    let currentProject = null;
+    let currentImageIndex = 0;
+    let imageTimer = null;
+    let touchStartX = 0;
+
+    function normalizeImages(project) {
+      if (Array.isArray(project.images)) return project.images.filter(Boolean);
+      if (project.image) return [project.image];
+      return [];
+    }
+
+    function stopImageAutoPlay() {
+      if (imageTimer) {
+        clearInterval(imageTimer);
+        imageTimer = null;
+      }
+    }
+
+    function startImageAutoPlay() {
+      stopImageAutoPlay();
+      const images = normalizeImages(currentProject);
+      if (images.length <= 1) return;
+      imageTimer = setInterval(() => {
+        showProjectImage(currentImageIndex + 1, false);
+      }, 4000);
+    }
+
+    function renderImageCounter(images) {
+      modalImageCounter.innerHTML = images
+        .map((_, index) => `<button class="modal-image-dot${index === currentImageIndex ? " is-active" : ""}" type="button" aria-label="${index + 1}번째 이미지 보기"></button>`)
+        .join("");
+
+      modalImageCounter.querySelectorAll(".modal-image-dot").forEach((dot, index) => {
+        dot.addEventListener("click", () => {
+          showProjectImage(index, true);
+        });
+      });
+    }
+
+    function showProjectImage(index, restartTimer = true) {
+      if (!currentProject) return;
+
+      const images = normalizeImages(currentProject);
+      if (!images.length) {
+        modalImage.style.display = "none";
+        modalImagePlaceholder.style.display = "grid";
+        modalImageNav.style.display = "none";
+        modalImageCounter.style.display = "none";
+        modalImageLabel.textContent = "";
+        stopImageAutoPlay();
+        return;
+      }
+
+      currentImageIndex = (index + images.length) % images.length;
+      const src = images[currentImageIndex];
+
+      modalImage.classList.add("is-changing");
+      const nextImage = new Image();
+      nextImage.onload = () => {
+        modalImage.src = src;
+        modalImage.alt = `${currentProject.title} 화면 ${currentImageIndex + 1}`;
+        modalImage.style.display = "block";
+        modalImagePlaceholder.style.display = "none";
+        modalImage.classList.remove("is-changing");
+        renderImageCounter(images);
+        modalImageLabel.textContent = images.length > 1
+          ? `${currentImageIndex + 1} / ${images.length}`
+          : "";
+      };
+      nextImage.onerror = () => {
+        modalImage.style.display = "none";
+        modalImagePlaceholder.style.display = "grid";
+        modalImage.classList.remove("is-changing");
+        modalImageLabel.textContent = "이미지를 불러올 수 없습니다.";
+      };
+      nextImage.src = src;
+
+      const hasMultiple = images.length > 1;
+      modalImageNav.style.display = hasMultiple ? "flex" : "none";
+      modalImageCounter.style.display = hasMultiple ? "flex" : "none";
+
+      if (restartTimer) startImageAutoPlay();
+    }
 
     function openProjectModal(projectId) {
       const project = PROJECTS[projectId];
       if (!project) return;
+
+      currentProject = project;
+      currentImageIndex = 0;
+      stopImageAutoPlay();
 
       modalTitle.textContent = project.title;
       modalBadge.textContent = project.badge;
@@ -1828,18 +2017,10 @@
         .map(tag => `<span>${tag}</span>`)
         .join("");
 
-      modalImage.alt = `${project.title} 화면`;
-      modalImage.src = project.image;
-      modalImage.style.display = "block";
-      modalImagePlaceholder.style.display = "none";
+      showProjectImage(0, false);
 
-      modalImage.onerror = () => {
-        modalImage.style.display = "none";
-        modalImagePlaceholder.style.display = "grid";
-      };
-
-      modalArchitecture.href = project.architecture;
-      modalGithub.href = project.github;
+      modalArchitecture.href = project.architecture || "#";
+      modalGithub.href = project.github || "#";
 
       const architectureDisabled = !project.architecture || project.architecture === "#";
       const githubDisabled = !project.github || project.github === "#";
@@ -1851,9 +2032,12 @@
       modal.setAttribute("aria-hidden", "false");
       document.body.classList.add("modal-open");
       modalClose.focus();
+      startImageAutoPlay();
     }
 
     function closeProjectModal() {
+      stopImageAutoPlay();
+      currentProject = null;
       modal.classList.remove("is-open");
       modal.setAttribute("aria-hidden", "true");
       document.body.classList.remove("modal-open");
@@ -1866,6 +2050,32 @@
     });
 
     modalClose.addEventListener("click", closeProjectModal);
+
+    modalImagePrev.addEventListener("click", () => {
+      showProjectImage(currentImageIndex - 1, true);
+    });
+
+    modalImageNext.addEventListener("click", () => {
+      showProjectImage(currentImageIndex + 1, true);
+    });
+
+    modalImageWrap.addEventListener("mouseenter", stopImageAutoPlay);
+    modalImageWrap.addEventListener("mouseleave", startImageAutoPlay);
+
+    modalImageWrap.addEventListener("touchstart", event => {
+      touchStartX = event.changedTouches[0].screenX;
+      stopImageAutoPlay();
+    }, { passive: true });
+
+    modalImageWrap.addEventListener("touchend", event => {
+      const touchEndX = event.changedTouches[0].screenX;
+      const deltaX = touchEndX - touchStartX;
+      if (Math.abs(deltaX) > 40) {
+        showProjectImage(currentImageIndex + (deltaX < 0 ? 1 : -1), true);
+      } else {
+        startImageAutoPlay();
+      }
+    }, { passive: true });
 
     modal.addEventListener("click", event => {
       if (event.target === modal) {
