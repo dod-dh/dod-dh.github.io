@@ -1,0 +1,116 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Enterprise Multi-Tenant AI Agent | Developer Portfolio</title><meta name="description" content="고객사 지식 기반 RAG에서 업무 Tool 실행까지 확장한 엔터프라이즈 AI 시스템"><link rel="stylesheet" href="../assets/portfolio-docs.css"></head><body>
+<header class="topbar"><div class="page topbar-inner"><a class="back" href="../index.html">← Portfolio</a><span class="badge">AI / RAG / Agent</span></div></header>
+<main class="page"><section class="hero"><div class="hero-grid"><div><div class="kicker">PROJECT TECHNICAL DOCUMENT</div><h1>Enterprise Multi-Tenant AI Agent</h1><p class="hero-sub">고객사 지식 기반 RAG에서 업무 Tool 실행까지 확장한 엔터프라이즈 AI 시스템</p><div class="stack"><span>Python</span><span>Gemini</span><span>Embedding</span><span>Vector DB</span><span>RAG</span><span>AWS Bedrock</span><span>Claude</span><span>PostgreSQL</span><span>pgvector</span><span>GIN</span><span>Cohere Rerank</span></div></div><div class="meta"><div class="meta-item"><small>Period</small><strong>2025.05 — 2025.06 (Phase 1)</strong></div><div class="meta-item"><small>Role</small><strong>Phase 1 1인 개발</strong></div><div class="meta-item"><small>Focus</small><strong>AI / RAG / Agent</strong></div><div class="meta-item"><small>Document</small><strong>Architecture &amp; Engineering</strong></div></div></div></section>
+<section class="highlights"><div class="highlight"><b>Knowledge ETL</b><p>비정형 FAQ/문서를 Q&amp;A로 구조화하고 검증 후 색인</p></div><div class="highlight"><b>RAG 고도화</b><p>Vector + Keyword Hybrid Retrieval, Reranking, Context 복원</p></div><div class="highlight"><b>Guardrail</b><p>답변 가능 여부 판정과 근거 검증</p></div><div class="highlight"><b>Action Agent</b><p>결정론적 흐름과 사용자 승인/OTP를 결합</p></div></section>
+<section class="section"><div class="section-title">Architecture</div><div class="diagram-card"><img src="../assets/architecture/chatbot-agent.svg" alt="Enterprise Multi-Tenant AI Agent architecture diagram"><div class="diagram-actions"><a class="btn" href="../assets/architecture/chatbot-agent.drawio" download>draw.io 원본</a></div></div></section>
+<section class="section"><div class="section-title">Document Navigation</div><nav class="toc"><a href="#executive-summary-핵심-요약">📌 Executive Summary (핵심 요약)</a><a href="#system-evolution-초기-구현-vs-고도화-차이">🏗️ System Evolution (초기 구현 vs 고도화 차이)</a><a href="#phase-1-gemini-기반-end-to-end-rag-파이프라인-구축-my-key-contribution">⚙️ Phase 1: Gemini 기반 End-to-End RAG 파이프라인 구축 (My Key Contribution)</a><a href="#phase-2-aws-bedrock-기반-enterprise-rag-amp-agent-고도화">🚀 Phase 2: AWS Bedrock 기반 Enterprise RAG &amp;amp; Agent 고도화</a><a href="#tech-stack-최종-아키텍처-기준">🛠 Tech Stack (최종 아키텍처 기준)</a><a href="#key-takeaways-amp-lessons-learned">💡 Key Takeaways &amp;amp; Lessons Learned</a></nav></section>
+<section class="content"><blockquote>
+<p><strong>고객사 지식(Knowledge Base) 기반의 AI 상담 및 업무 대행(Action Executing) 에이전트 서비스</strong></p>
+</blockquote>
+<hr />
+<h2 id="executive-summary-핵심-요약">📌 Executive Summary (핵심 요약)</h2>
+<ul>
+<li><strong>결론 중심의 설계 원칙</strong>:<ol>
+<li><strong>조회는 AI가 자동화, 변경성 액션은 사람이 확인/승인 후 실행</strong> (권한 및 책임 분리)</li>
+<li><strong>Hallucination Zero</strong>: 모르면 지어내지 않고 거부하는 엄격한 Guardrail 파이프라인 구축</li>
+<li><strong>데이터 기반의 품질 검증</strong>: 감이 아닌 정량적 메트릭을 통한 RAG 파이프라인 최적화</li>
+</ol>
+</li>
+</ul>
+<hr />
+<h2 id="system-evolution-초기-구현-vs-고도화-차이">🏗️ System Evolution (초기 구현 vs 고도화 차이)</h2>
+<p>본 프로젝트는 초기 <strong>Gemini 기반 End-to-End RAG 파이프라인(Phase 1)</strong> 구축을 시작으로, 운영 효율성과 보안성, 검색 정밀도를 극대화한 <strong>AWS Bedrock 기반 고도화 아키텍처(Phase 2)</strong>로 진화했습니다.</p>
+<h3 id="phase-comparison-matrix">🔄 Phase Comparison Matrix</h3>
+<p>| 구분 | Phase 1 (초기 구축 - 본인 담당 영역) | Phase 2 (AWS Bedrock 기반 고도화) |
+| :--- | :--- | :--- |
+| <strong>코어 엔진</strong> | Google Gemini (LLM + Embedding) | AWS Bedrock (Claude Haiku/Sonnet + Nova 2) |
+| <strong>지식 구축 (ETL)</strong> | FAQ/문서 파싱 ➔ Q&amp;A 추출 ➔ <strong>자체 검증 Loop</strong> | 다중 지식 타입 분리 (FAQ, QnA, Chunked Doc, Synonyms) |
+| <strong>질문 정제</strong> | Gemini 기반 쿼리 정제 (맥락 보정) | Haiku 기반 쿼리 재작성 + 동의어 확장 |
+| <strong>검색 방식</strong> | Gemini Embedding + <strong>Top-K (K=5) Cosine Similarity</strong> | 하이브리드 검색 (Vector + Keyword GIN) + <strong>Cohere Rerank</strong> |
+| <strong>검색 단위</strong> | Top-5 단일 Q&amp;A Chunk 전달 | Small-to-Large (작게 찾고 확장하여 문맥 복원) |
+| <strong>검증 파이프라인</strong> | 지식 추출 시 <strong>Human-in-the-Loop</strong> 모호성 검증 | <strong>제3자 LLM(Haiku) 대조 검증</strong> 및 Fact-Check |
+| <strong>도구 실행</strong> | 조회성 데이터 API 매핑 | <strong>권한 격리형 Tool Call</strong> (로그인 세션 주입 + OTP 승인) |</p>
+<hr />
+<h2 id="phase-1-gemini-기반-end-to-end-rag-파이프라인-구축-my-key-contribution">⚙️ Phase 1: Gemini 기반 End-to-End RAG 파이프라인 구축 (My Key Contribution)</h2>
+<p>초기 단계에서는 FAQ 데이터 정제(ETL)부터 사용자 질문을 받아 실시간으로 답변을 생성하는 RAG 파이프라인 전체를 Gemini 단일 생태계 기반으로 구현했습니다.</p>
+<h3 id="1-지식-구축-etl-amp-자체-검증-파이프라인-off-line">1. 지식 구축 ETL &amp; 자체 검증 파이프라인 (Off-line)</h3>
+<p>[원천 데이터] ➔ [Gemini: Q&amp;A 추출] ➔ [Gemini: 1차 검증] ➔ [애매함?] ➔ (YES) ➔ [Human-in-the-Loop (사람 승인)]
+⬇ (NO)
+[Vector DB 저장] ⬅ [Gemini Embedding] ⬅ [확인된 Q&amp;A 쌍 색인]</p>
+<ul>
+<li><strong>자동화 추출 및 표준화</strong>: 비구조화된 FAQ/고객센터 원문 데이터를 입력받아 LLM(Gemini)을 활용해 질문-답변(Q&amp;A) 쌍으로 가공.</li>
+<li><strong>Self-Consistency &amp; Verification (자체 검증)</strong>:<ul>
+<li>추출된 Q&amp;A가 원본 데이터와 일치하는지 Gemini에 재검증 프롬프트 실행.</li>
+<li>신뢰도가 부족하거나 모호한 지식은 <strong>Human-in-the-Loop(사람 운영자 확인)</strong> 큐로 이관하여 지식베이스 오염 방지.</li>
+</ul>
+</li>
+<li><strong>Vector DB 색인</strong>: 검증을 통과한 고품질 데이터만 Gemini Text Embedding 모델을 거쳐 Vector DB에 저장.</li>
+</ul>
+<h3 id="2-실시간-질답-서빙-파이프라인-on-line-rag">2. 실시간 질답 서빙 파이프라인 (On-line RAG)</h3>
+<p>[사용자 질문 입력] ➔ [Gemini: 쿼리 정제] ➔ [Gemini Embedding] ➔ [Vector DB Top-5 Similarity Search] ➔ [Gemini: Context 기반 답변 생성]</p>
+<ul>
+<li><strong>질문 정제 (Query Preprocessing)</strong>: 대화 맥락이나 모호한 단어가 포함된 사용자 질문을 Gemini를 통해 검색에 최적화된 명확한 문장으로 정제.</li>
+<li><strong>유사도 기반 Top-K Retrieval</strong>: 정제된 질문을 Gemini Embedding 모델로 벡터화한 후, Vector DB에서 코사인 유사도(Cosine Similarity) 기준 <strong>상위 5개(Top-K = 5)</strong> 후보 문서/Q&amp;A를 추출.</li>
+<li><strong>Context-Aware Response Generation</strong>: 검색된 Top-5 지식 조각을 Prompt Context로 주입하여 Gemini가 등록된 지식 범위 안에서 정확한 답변을 생성하도록 유도.</li>
+</ul>
+<hr />
+<h2 id="phase-2-aws-bedrock-기반-enterprise-rag-amp-agent-고도화">🚀 Phase 2: AWS Bedrock 기반 Enterprise RAG &amp; Agent 고도화</h2>
+<p>이후 엔터프라이즈 환경에 맞춰 보안성(AWS VPC 내 격리), 답변 정밀도, 업무 처리 능력을 한 단계 높이기 위해 시스템을 개편했습니다.</p>
+<h3 id="1-6-step-rag-pipeline-지식-담당">1. 6-Step RAG Pipeline (지식 담당)</h3>
+<p>Hallucination을 제로 수준으로 낮추기 위해 단일 LLM 호출이 아닌 6단계의 파이프라인을 거칩니다.</p>
+<p>[사용자 질문]
+│
+├── ① 질문 정제 (Haiku): 대화 맥락 반영 및 쿼리 재작성
+├── ② 하이브리드 검색 (Nova + pgvector + GIN): 의미(Vector) + 키워드(BM25) 병렬 수집
+├── ③ Re-ranking (Cohere): 후보 수십 개 중 관련도 순 재정렬 (Phase 1 Top-5 한계 극복)
+├── ④ 판정 (Haiku): &quot;자료로 답할 수 있는가?&quot; (충분/재검색/되묻기/거절)
+├── ⑤ 답변 생성 (Sonnet): 선별된 Context 기반 템플릿 작성
+└── ⑥ 근거 검증 (Haiku): 생성된 답이 원본 Context에만 기반하는지 대조 후 발송</p>
+<h3 id="2-rag-성능-향상을-위한-데이터-처리-전략-data-indexing">2. RAG 성능 향상을 위한 데이터 처리 전략 (Data Indexing)</h3>
+<ul>
+<li><strong>Small-to-Large Retrieval</strong>: 조각(1,500자) 단위로 정밀하게 검색하되, LLM 답변 생성 시에는 전후 Context(<code>±3 Chunk</code>)를 복원하여 문맥 단절 문제 해결.</li>
+<li><strong>Header-Aware Chunking</strong>: HTML/문서의 Heading 계층구조를 보존하여 쪼개고, 조각마다 <code>[제목]</code>, <code>[섹션]</code> 메타데이터를 결합해 벡터 유사도 정밀도 대폭 향상.</li>
+<li><strong>별칭(Synonym) 전용 색인</strong>: 동의어나 줄임말이 본문 검색 신호를 희석하지 않도록 별도의 별칭 벡터를 분리 색인하여 병렬 검색 실행.</li>
+</ul>
+<h3 id="3-agent-tool-executing-도구-및-권한-담당">3. Agent Tool Executing (도구 및 권한 담당)</h3>
+<ul>
+<li><strong>Deterministic Flow + LLM Hybrid</strong>:<ul>
+<li>&quot;주문 취소&quot;, &quot;환불&quot; 등 상태 변경 액션은 LLM의 재량에 100% 맡기지 않고, 노드 그래프 기반의 <strong>결정론적 워크플로우 엔진</strong>이 순서를 강제.</li>
+<li>LLM은 사용자의 의도 파악 및 필요한 파라미터 추출 역할만 수행.</li>
+</ul>
+</li>
+<li><strong>Security &amp; Permission Control</strong>:<ul>
+<li><strong>계정 ID 격리</strong>: LLM Tool Parameter에서 계정 ID를 제외하고, 백엔드 서버가 인증된 HTTP Session에서 직접 주입하여 <strong>타인 데이터 조회 가능성 근본 차단</strong>.</li>
+<li><strong>Write Action Guardrail</strong>: 데이터 변경성 요청 시 UI에 <strong>Direct Action Button</strong>만 제공하여 사용자가 직접 터치하게 유도하며, 필요 시 OTP 인증 절차 강제.</li>
+</ul>
+</li>
+</ul>
+<hr />
+<h2 id="tech-stack-최종-아키텍처-기준">🛠 Tech Stack (최종 아키텍처 기준)</h2>
+<ul>
+<li><strong>Backend</strong>: Java 17, Spring Boot 3.x, Spring AI</li>
+<li><strong>Frontend</strong>: React 18, TypeScript, Vite</li>
+<li><strong>AI &amp; Machine Learning</strong>:<ul>
+<li><strong>LLM</strong>: AWS Bedrock (Claude 3.5 Sonnet / Claude 3 Haiku), Google Gemini (Phase 1)</li>
+<li><strong>Embedding</strong>: Amazon Nova 2 Multimodal Embeddings, Gemini Embedding (Phase 1)</li>
+<li><strong>Reranker</strong>: Cohere Rerank v3</li>
+</ul>
+</li>
+<li><strong>Database &amp; Search</strong>:<ul>
+<li>PostgreSQL (RDS) + <strong>pgvector</strong> (HNSW Indexing)</li>
+<li>PostgreSQL Native Text Search (<code>tsvector</code> + GIN Index)</li>
+<li><strong>Lucene-Nori</strong>: App-level 한국어 형태소 분석기 및 고객사 커스텀 사전 동적 적용</li>
+</ul>
+</li>
+<li><strong>Infrastructure</strong>: AWS ECS Fargate, ALB, CloudFront, S3</li>
+</ul>
+<hr />
+<h2 id="key-takeaways-amp-lessons-learned">💡 Key Takeaways &amp; Lessons Learned</h2>
+<ol>
+<li><strong>Top-K 벡터 검색의 한계와 Re-ranker의 필요성</strong>: Phase 1에서 구현한 단순 유사도 기반 Top-5 추출 방식은 단어 하나에 편향되어 정답 문서가 아래로 묻히는 현상이 발생했습니다. 이를 통해 Phase 2에서 <strong>하이브리드 검색(Keyword+Vector)과 Re-ranker 도입</strong>의 필위성을 도출하고 시스템을 고도화했습니다.</li>
+<li><strong>모델 성능보다 지식 구조화가 더 중요하다</strong>: RAG의 품질 향상을 견인한 가장 큰 요소는 더 강력한 LLM으로 바꾼 것이 아니라, <strong>&quot;자료를 어떻게 잘라내고, 어떻게 메타데이터를 결합해 넣어주는가&quot;</strong>였습니다.</li>
+<li><strong>AI 서비스의 책임 분리</strong>: 기술적으로 AI가 직접 DB 조작 API를 호출하도록 다 뚫어놓는 것은 가상 판례(예: Air Canada 챗봇 사건)와 같이 커다란 비즈니스 리스크를 초래합니다. <strong>&quot;판단은 AI, 실행/권한은 시스템 구조&quot;</strong>라는 가이드라인을 세워 엔터프라이즈급 안정성을 확보했습니다.</li>
+</ol>
+</section></main>
+<footer class="page footer">Portfolio technical document · 공개용 문서는 내부 식별정보·자격증명·운영 세부를 일반화한 범위에서 구성했습니다.</footer>
+</body></html>

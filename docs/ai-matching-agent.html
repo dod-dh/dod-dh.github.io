@@ -1,0 +1,276 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI 기반 상품 매칭 Agent | Developer Portfolio</title><meta name="description" content="비정형 주문 상품명을 사내 상품 마스터와 자동 매칭하는 AI Agent 시스템"><link rel="stylesheet" href="../assets/portfolio-docs.css"></head><body>
+<header class="topbar"><div class="page topbar-inner"><a class="back" href="../index.html">← Portfolio</a><span class="badge">AI / Agent</span></div></header>
+<main class="page"><section class="hero"><div class="hero-grid"><div><div class="kicker">PROJECT TECHNICAL DOCUMENT</div><h1>AI 기반 상품 매칭 Agent</h1><p class="hero-sub">비정형 주문 상품명을 사내 상품 마스터와 자동 매칭하는 AI Agent 시스템</p><div class="stack"><span>Python</span><span>FastAPI</span><span>LangChain</span><span>AWS Bedrock</span><span>Claude</span><span>MCP</span><span>RapidFuzz</span><span>MySQL</span><span>PostgreSQL</span><span>Phoenix</span><span>Docker</span><span>ECR</span><span>ECS Fargate</span><span>ALB</span></div></div><div class="meta"><div class="meta-item"><small>Period</small><strong>2026.08 — 2026.09</strong></div><div class="meta-item"><small>Role</small><strong>1인 개발</strong></div><div class="meta-item"><small>Focus</small><strong>AI / Agent</strong></div><div class="meta-item"><small>Document</small><strong>Architecture &amp; Engineering</strong></div></div></div></section>
+<section class="highlights"><div class="highlight"><b>검색 → 판단 분리</b><p>DB 후보 검색과 RapidFuzz 필터링을 선행한 뒤 LLM Agent가 최종 판단</p></div><div class="highlight"><b>Agent Loop 최적화</b><p>후보 부족 시 검색 조건을 보완하되 종료 조건을 적용해 반복 호출 억제</p></div><div class="highlight"><b>대량 병렬 처리</b><p>상품 단위 Background 기반 비동기·병렬 처리</p></div><div class="highlight"><b>운영 가능한 AI</b><p>Phoenix Trace + 관리자 Dashboard로 실행·사용량 추적</p></div></section>
+<section class="section"><div class="section-title">Architecture</div><div class="diagram-card"><img src="../assets/architecture/ai-matching-agent.svg" alt="AI 기반 상품 매칭 Agent architecture diagram"><div class="diagram-actions"><a class="btn" href="../assets/architecture/ai-matching-agent.drawio" download>draw.io 원본</a></div></div></section>
+<section class="section"><div class="section-title">Document Navigation</div><nav class="toc"><a href="#1-프로젝트-개요">1. 프로젝트 개요</a><a href="#2-전체-아키텍처">2. 전체 아키텍처</a><a href="#3-ai-matching-pipeline">3. AI Matching Pipeline</a><a href="#4-candidate-search">4. Candidate Search</a><a href="#5-llm-agent">5. LLM Agent</a><a href="#6-대량-상품-병렬-처리">6. 대량 상품 병렬 처리</a><a href="#7-mcp-연계">7. MCP 연계</a><a href="#8-멀티테넌트-구조">8. 멀티테넌트 구조</a><a href="#9-observability">9. Observability</a><a href="#10-관리자-시스템">10. 관리자 시스템</a><a href="#11-aws-인프라">11. AWS 인프라</a><a href="#12-주요-설계-포인트">12. 주요 설계 포인트</a><a href="#13-프로젝트에서-담당한-범위">13. 프로젝트에서 담당한 범위</a></nav></section>
+<section class="content"><p>AI 기반 상품 매칭 Agent --- 아키텍처 및 기술 상세</p>
+<h2 id="1-프로젝트-개요">1. 프로젝트 개요</h2>
+<p>주문 파일에 입력된 비정형 상품명과 사내 상품 마스터 데이터를 자동으로
+매칭하는 AI Agent 시스템입니다.</p>
+<p>상품명은 판매처와 주문 데이터에 따라 표현 방식이 달라 단순 문자열
+검색만으로 정확한 상품을 찾기 어려울 수 있습니다. 이를 해결하기 위해 DB
+기반 후보 검색과 문자열 유사도 필터링을 선행하고, 최종 판단은 LLM 기반
+Agent가 수행하도록 단계적인 매칭 Pipeline을 설계했습니다.</p>
+<p>또한 실제 업무 환경에서 사용할 수 있도록 대량 상품 병렬 처리, Agent 실행
+이력, LLM/MCP 호출량 모니터링, 멀티테넌트 관리 및 AWS 기반 배포 환경까지
+함께 구축했습니다.</p>
+<h2 id="2-전체-아키텍처">2. 전체 아키텍처</h2>
+<pre><code>                     사용자 / 업무 시스템
+                            │
+                            ▼
+                     ┌──────────────┐
+                     │     ALB      │
+                     └──────┬───────┘
+                            │
+                            ▼
+                ┌────────────────────────┐
+                │      ECS Fargate       │
+                │                        │
+                │       FastAPI          │
+                │          │             │
+                │   AI Matching Agent    │
+                └──────────┬─────────────┘
+                           │
+          ┌────────────────┼────────────────┐
+          │                │                │
+          ▼                ▼                ▼
+     ┌─────────┐     ┌────────────┐   ┌────────────┐
+     │  MySQL  │     │ MCP Server │   │  Bedrock   │
+     │ Product │     │ Tool Layer │   │   Claude   │
+     │ Master  │     └─────┬──────┘   └────────────┘
+     └─────────┘           │
+                           ▼
+                     사내 업무 시스템
+
+    ┌─────────────────────────────────────────┐
+    │              운영 / 관측                │
+    │                                         │
+    │ Phoenix │ RDS PostgreSQL │ Admin       │
+    │ Trace   │ 실행이력/통계   │ Dashboard   │
+    └─────────────────────────────────────────┘</code></pre>
+<p>Deployment:
+GitHub Actions → ECR → ECS Fargate → ALB</p>
+<h2 id="3-ai-matching-pipeline">3. AI Matching Pipeline</h2>
+<p>주문 상품
+│
+▼
+상품명 정규화
+│
+▼
+DB 후보 검색
+│
+▼
+RapidFuzz 유사도 필터링
+│
+▼
+후보 상품 구성
+│
+▼
+LLM Agent 판단
+│
+├── 매칭 가능 → 결과 반환
+│
+└── 후보 부족 / 불확실
+│
+▼
+검색 조건 보완
+│
+▼
+추가 후보 검색
+│
+└── 재판단</p>
+<p>모든 상품을 LLM에게 직접 전달하지 않고, 먼저 DB 검색과 문자열 유사도
+필터링을 수행하여 LLM이 판단해야 하는 후보 범위를 줄였습니다.</p>
+<p>이 구조를 통해 검색 단계와 AI 판단 단계를 분리하고, 대량의 상품 마스터
+데이터에서도 효율적으로 매칭할 수 있도록 설계했습니다.</p>
+<h2 id="4-candidate-search">4. Candidate Search</h2>
+<p>상품 매칭 요청이 들어오면 먼저 사내 상품 Master DB에서 후보 상품을
+검색합니다.</p>
+<p>후보 검색 단계에서는 상품명에 포함된 검색 조건을 활용하여 검색 범위를
+줄이고, 이후 RapidFuzz 기반 문자열 유사도를 계산하여 LLM에게 전달할
+후보를 추가로 필터링합니다.</p>
+<p>Order Product
+│
+▼
+DB Search
+│
+▼
+Candidate Products
+│
+▼
+RapidFuzz Similarity
+│
+▼
+Top Candidates</p>
+<p>LLM이 전체 상품 Master를 직접 검색하지 않도록 검색 가능한 후보군을 먼저
+구성하여 불필요한 LLM 입력과 호출을 줄였습니다.</p>
+<h2 id="5-llm-agent">5. LLM Agent</h2>
+<p>후보 상품이 구성되면 LLM Agent가 주문 상품과 후보 상품의 정보를 비교하여
+최종 매칭 여부를 판단합니다.</p>
+<p>단일 LLM 호출에 의존하지 않고, 검색 결과가 충분하지 않거나 판단에 필요한
+정보가 부족한 경우 추가 검색을 수행할 수 있도록 Agent Loop를
+구성했습니다.</p>
+<p>Candidate Search
+│
+▼
+LLM 판단
+│
+├── Match / Review
+│
+└── 후보 부족
+│
+▼
+검색 조건 보완
+│
+▼
+추가 검색
+│
+▼
+재판단</p>
+<p>반복 검색에는 종료 조건을 적용하여 Agent가 불필요하게 계속 검색하거나
+LLM을 반복 호출하지 않도록 했습니다.</p>
+<p>또한 기존 후보 검색 결과를 활용하고 필요한 경우에만 추가 검색을
+수행하도록 Loop를 최적화하여 호출 횟수와 처리 지연을 줄였습니다.</p>
+<h2 id="6-대량-상품-병렬-처리">6. 대량 상품 병렬 처리</h2>
+<p>주문 파일에는 여러 상품이 포함될 수 있기 때문에 상품을 순차적으로
+처리하면 전체 처리 시간이 증가할 수 있습니다.</p>
+<p>이를 해결하기 위해 상품 단위로 작업을 분리하고 Background 기반
+비동기·병렬 처리 구조를 적용했습니다.</p>
+<p>Job
+│
+├── Item 1 ──► Matching Agent
+├── Item 2 ──► Matching Agent
+├── Item 3 ──► Matching Agent
+├── Item 4 ──► Matching Agent
+└── Item N ──► Matching Agent</p>
+<p>각 Item의 매칭 작업을 독립적으로 처리할 수 있도록 구성하여 대량 상품
+요청에서도 전체 처리 시간을 줄일 수 있도록 설계했습니다.</p>
+<h2 id="7-mcp-연계">7. MCP 연계</h2>
+<p>AI Agent가 사내 데이터와 업무 기능을 직접 구현 방식에 의존하지 않고
+사용할 수 있도록 MCP Server를 Tool Layer로 활용했습니다.</p>
+<p>AI Matching Agent
+│
+▼
+MCP Server
+│
+├── DB Tool
+├── Search Tool
+└── 업무 기능 Tool
+│
+▼
+사내 데이터 / 시스템</p>
+<p>MCP Server를 통해 Agent와 데이터 계층을 분리하고, 공통 업무 기능을 Tool
+형태로 추상화했습니다.</p>
+<p>이를 통해 향후 다른 Agent에서도 동일한 업무 Tool을 재사용할 수 있도록
+구성했습니다.</p>
+<h2 id="8-멀티테넌트-구조">8. 멀티테넌트 구조</h2>
+<p>여러 테넌트가 동일한 AI 시스템을 사용할 수 있도록 테넌트 정보를 기반으로
+요청과 데이터 접근 범위를 분리했습니다.</p>
+<p>Request
+│
+▼
+Tenant Authentication
+│
+▼
+Tenant Routing
+│
+├── Tenant A → Data / Usage
+├── Tenant B → Data / Usage
+└── Tenant C → Data / Usage</p>
+<p>Agent 및 Tool 호출 과정에서 테넌트 컨텍스트를 유지하도록 구성하여
+테넌트별 데이터와 사용량을 분리해서 관리할 수 있도록 했습니다.</p>
+<h2 id="9-observability">9. Observability</h2>
+<p>AI Agent는 하나의 요청 안에서 여러 LLM 호출과 Tool Call이 발생할 수 있기
+때문에 실행 과정을 추적할 수 있는 구조가 필요합니다.</p>
+<p>Arize Phoenix를 활용하여 다음 실행 정보를 추적할 수 있도록 구성했습니다.</p>
+<p>LLM 호출</p>
+<p>Agent 실행 과정</p>
+<p>MCP Tool Call</p>
+<p>각 단계별 처리 시간</p>
+<p>Agent 실행 이력</p>
+<p>호출 결과</p>
+<p>Job
+│
+└── Item
+│
+├── Agent
+│    ├── LLM Call
+│    ├── MCP Tool
+│    └── LLM Call
+│
+└── Matching Result</p>
+<p>최종 결과뿐 아니라 Agent가 어떤 과정을 거쳐 결과를 생성했는지 확인하고
+병목 구간을 분석할 수 있도록 구성했습니다.</p>
+<h2 id="10-관리자-시스템">10. 관리자 시스템</h2>
+<p>운영 환경에서 AI 사용량과 처리 상태를 확인할 수 있도록 관리자
+Dashboard를 구축했습니다.</p>
+<p>주요 관리 항목</p>
+<p>테넌트별 Job / Item 처리량</p>
+<p>LLM 호출량</p>
+<p>MCP Tool 호출량</p>
+<p>매칭 결과 통계</p>
+<p>평균 처리 시간</p>
+<p>Job 및 Item 실행 이력</p>
+<p>Agent 실행 상태 및 오류 확인</p>
+<p>관리자 화면에서는 테넌트 단위로 사용량을 조회할 수 있으며, Job 상세
+화면에서는 개별 Item의 처리 결과와 실행 정보를 확인할 수 있도록
+구성했습니다.</p>
+<h2 id="11-aws-인프라">11. AWS 인프라</h2>
+<p>서비스는 컨테이너 기반으로 구성하고 AWS 환경에서 배포·운영했습니다.</p>
+<p>GitHub
+│
+▼
+GitHub Actions
+│
+│ Docker Build
+▼
+AWS ECR
+│
+▼
+ECS Fargate
+│
+▼
+ALB
+│
+▼
+FastAPI / AI Matching Agent</p>
+<pre><code>          ┌─────────────────┐
+          │ RDS PostgreSQL  │
+          │ 실행 이력 / 통계 │
+          └─────────────────┘</code></pre>
+<p>구성 요소</p>
+<p>구성 요소        역할</p>
+<p>GitHub Actions   CI/CD 및 이미지 빌드·배포 자동화
+ECR              Docker 이미지 저장소
+ECS Fargate      컨테이너 실행 환경
+ALB              외부 요청 분산 및 서비스 진입점
+RDS PostgreSQL   실행 이력 및 통계 데이터 저장
+AWS Bedrock      Claude 기반 LLM 호출
+Arize Phoenix    Agent / LLM / Tool 실행 추적</p>
+<h2 id="12-주요-설계-포인트">12. 주요 설계 포인트</h2>
+<p>검색과 판단의 분리</p>
+<p>DB 검색과 문자열 유사도 필터링을 먼저 수행하고 LLM은 최종 판단과 필요한
+추가 검색에 집중하도록 구성했습니다.</p>
+<p>LLM 호출 최소화</p>
+<p>후보군을 사전에 축소하고 Agent Loop에 종료 조건을 적용하여 불필요한 반복
+호출과 검색을 줄였습니다.</p>
+<p>대량 처리</p>
+<p>상품 단위 Background·병렬 처리 구조를 적용하여 여러 Item을 독립적으로
+처리할 수 있도록 했습니다.</p>
+<p>업무 기능의 Tool화</p>
+<p>MCP를 통해 사내 기능을 공통 Tool로 추상화하여 Agent와 데이터 계층의
+결합도를 낮췄습니다.</p>
+<p>운영 가능성</p>
+<p>Agent / LLM / MCP 실행 과정을 추적하고 테넌트별 사용량 및 실행 이력을
+관리자 Dashboard에서 확인할 수 있도록 구성했습니다.</p>
+<p>배포 자동화</p>
+<p>GitHub Actions를 기반으로 Docker 이미지 빌드부터 ECR 등록, ECS Fargate
+배포까지 CI/CD Pipeline을 구성했습니다.</p>
+<h2 id="13-프로젝트에서-담당한-범위">13. 프로젝트에서 담당한 범위</h2>
+<p>본 프로젝트에서 AI Matching Agent의 설계 및 개발뿐 아니라 API 서버,
+Agent Pipeline, MCP 연계, 대량 처리 구조, Observability, 관리자 시스템
+및 AWS 배포 인프라까지 전반적인 시스템을 1인 개발했습니다.</p>
+</section></main>
+<footer class="page footer">Portfolio technical document · 공개용 문서는 내부 식별정보·자격증명·운영 세부를 일반화한 범위에서 구성했습니다.</footer>
+</body></html>
